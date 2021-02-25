@@ -1,15 +1,16 @@
 #![feature(total_cmp)]
 
-mod macros;
 mod asteroids;
 mod lifetime;
+mod macros;
 mod menu;
 mod movement;
 
 use std::f32::consts::TAU;
 
+use bevy::input::mouse::MouseWheel;
+use bevy::prelude::*;
 use bevy::sprite::collide_aabb::collide;
-use bevy::{input::mouse::MouseWheel, prelude::*};
 
 use asteroids::*;
 use bevy::render::camera::Camera;
@@ -69,7 +70,8 @@ fn main() {
         .on_state_update(AppState::InGame, spawn_asteroids.system())
         .on_state_update(AppState::InGame, targeting.system())
         .on_state_update(AppState::InGame, ship_movement.system())
-        .on_state_update(AppState::InGame, ship_weapon_switch.system())
+        .on_state_update(AppState::InGame, weapon_system_switch_weapon.system())
+        .on_state_update(AppState::InGame, weapon_system_fire.system())
         .on_state_update(AppState::InGame, ship_cannon.system())
         .on_state_update(AppState::InGame, ship_laser.system())
         .on_state_update(AppState::InGame, laser_beam.system())
@@ -90,11 +92,17 @@ fn main() {
         .add_resource(ClearColor(Color::rgb_u8(7, 0, 17)))
         .add_startup_system(setup.system())
         .add_resource(State::new(AppState::Menu))
+        .add_resource(MouseWorldPos::default())
         .init_resource::<GameMaterials>()
         .add_stage_after(stage::UPDATE, APP_STATE_STAGE, app_state_stage)
         .add_stage_after(APP_STATE_STAGE, "laser_beam_stage", laser_beam_stage)
         .add_plugin(menu::MenuPlugin)
         .run();
+}
+
+struct WeaponSlot {
+    system: Entity,
+    slot: usize,
 }
 
 struct WeaponCannon(Timer);
@@ -130,15 +138,22 @@ pub struct Spaceship {
 }
 
 #[derive(Default)]
-struct Target {
-    pos: Vec3,
-    dir: Vec3,
-    dist: f32,
+struct MouseWorldPos(Vec3);
+
+impl MouseWorldPos {
+    fn dir_from(&self, pos: Vec3) -> Vec3 {
+        let mut dir = self.0 - pos;
+        dir.z = 0.;
+        dir.normalize()
+    }
 }
 
 pub struct Collider(Vec2);
 
-pub struct Bullet(bool);
+#[derive(Default)]
+pub struct Bullet {
+    already_hit: bool,
+}
 
 struct SpriteAnimation {
     timer: Timer,
@@ -158,6 +173,24 @@ impl SpriteAnimation {
     fn next(&mut self) -> u32 {
         self.current = (self.current + 1) % self.frames;
         self.current
+    }
+}
+#[derive(Bundle)]
+struct WeaponBundle<W> {
+    weapon_slot: WeaponSlot,
+    transform: Transform,
+    global_transform: GlobalTransform,
+    weapon: W,
+}
+
+impl<W> WeaponBundle<W> {
+    fn new(weapon: W, slot: usize, system: Entity) -> Self {
+        Self {
+            weapon_slot: WeaponSlot { slot, system },
+            transform: Transform::default(),
+            global_transform: GlobalTransform::default(),
+            weapon,
+        }
     }
 }
 
@@ -185,11 +218,24 @@ fn start_game(
         })
         .with(Spaceship { hp: 100, score: 0 })
         .with(CleanupAfterGame)
-        .with(Target::default())
-        // .with(ShipWeapons::Laser)
-        .with(WeaponCannon::default())
-        // .with(WeaponLaser::Idle)
-        .with(Collider(Vec2::new(16., 48.)));
+        .with(Collider(Vec2::new(16., 48.)))
+        .with(WeaponSystem {
+            slots: 2,
+            current: 0,
+            is_firing: false,
+        })
+        .with_children(|ship| {
+            ship.spawn(WeaponBundle::new(
+                WeaponCannon::default(),
+                0,
+                ship.parent_entity(),
+            ));
+            ship.spawn(WeaponBundle::new(
+                WeaponLaser::default(),
+                1,
+                ship.parent_entity(),
+            ));
+        });
 
     // TEST ASTERIOD
     commands
@@ -284,37 +330,21 @@ fn start_game(
         });
 }
 
-#[derive(Default)]
-struct TargetingState {
-    cursor_moved_reader: EventReader<CursorMoved>,
-}
-
 fn targeting(
-    mut state: Local<TargetingState>,
     windows: Res<Windows>,
-    mut query: Query<(&mut Target, &Transform)>,
     camera_query: Query<&Transform, With<Camera>>,
     cursor_moved_events: Res<Events<CursorMoved>>,
+    mut cursor_moved_reader: Local<EventReader<CursorMoved>>,
+    mut mouse_world_pos: ResMut<MouseWorldPos>,
 ) {
     use bevy::math::Vec4Swizzles as _;
-    let mouse_move = state
-        .cursor_moved_reader
-        .latest(&cursor_moved_events)
-        .map(|event| {
-            let camera_transform = camera_query.iter().next().unwrap();
-            let window = windows.get(event.id).unwrap();
-            let window_size = Vec2::new(window.width() as f32, window.height() as f32);
-            let p = event.position - window_size * 0.5;
-            (camera_transform.compute_matrix() * p.extend(0.0).extend(1.0)).xy()
-        });
+    if let Some(event) = cursor_moved_reader.latest(&cursor_moved_events) {
+        let camera_transform = camera_query.iter().next().unwrap();
+        let window = windows.get(event.id).unwrap();
+        let window_size = Vec2::new(window.width() as f32, window.height() as f32);
+        let p = event.position - window_size * 0.5;
 
-    for (mut target, transform) in query.iter_mut() {
-        if let Some(mouse_pos) = mouse_move {
-            target.pos = mouse_pos.extend(0.);
-        }
-
-        target.dir = (target.pos - transform.translation).normalize();
-        target.dist = target.pos.distance_squared(transform.translation);
+        mouse_world_pos.0 = (camera_transform.compute_matrix() * p.extend(0.0).extend(1.0)).xyz();
     }
 }
 
@@ -322,12 +352,14 @@ const SHIP_SPEED: f32 = 50.0;
 
 fn ship_movement(
     mouse_input: Res<Input<MouseButton>>,
-    mut spaceship_query: Query<(&mut Transform, &Target), With<Spaceship>>,
+    mut spaceship_query: Query<&mut Transform, With<Spaceship>>,
     time: Res<Time>,
+    mouse_pos: Res<MouseWorldPos>,
 ) {
-    for (mut transform, target) in spaceship_query.iter_mut() {
-        if target.dist > 0.1 {
-            let angle = Vec3::unit_y().angle_between(target.dir) * -target.dir.x.signum();
+    for mut transform in spaceship_query.iter_mut() {
+        if transform.translation.distance_squared(mouse_pos.0) > 0.1 {
+            let dir_to_target = mouse_pos.dir_from(transform.translation);
+            let angle = Vec3::unit_y().angle_between(dir_to_target) * -dir_to_target.x.signum();
             transform.rotation = Quat::from_rotation_z(angle);
 
             let speed = if mouse_input.pressed(MouseButton::Right) {
@@ -336,57 +368,100 @@ fn ship_movement(
                 0.0 //SHIP_SPEED
             };
 
-            let movement = target.dir.normalize() * speed * time.delta_seconds();
+            let movement = dir_to_target * speed * time.delta_seconds();
 
             transform.translation += movement;
         }
     }
 }
 
-weapon_switcher!(StarshipWeapons {
-    WeaponLaser <= WeaponCannon => WeaponLaser,
-    WeaponCannon <= WeaponLaser => WeaponCannon,
-});
+struct WeaponSystem {
+    current: usize,
+    slots: usize,
+    is_firing: bool,
+}
 
-fn ship_weapon_switch(
-    cmd: &mut Commands,
+impl WeaponSystem {
+    fn is_firing(&self, weapon: &WeaponSlot) -> bool {
+        self.is_firing && weapon.slot == self.current
+    }
+
+    fn prev(&mut self) -> usize {
+        if self.current == 0 {
+            self.current = self.slots - 1;
+        } else {
+            self.current -= 1;
+        }
+        self.current
+    }
+
+    fn next(&mut self) -> usize {
+        if self.current == self.slots - 1 {
+            self.current = 0;
+        } else {
+            self.current += 1;
+        }
+        self.current
+    }
+}
+
+fn weapon_system_switch_weapon(
+    // cmd: &mut Commands,
     scroll_events: Res<Events<MouseWheel>>,
     mut scroll_reader: Local<EventReader<MouseWheel>>,
-    mut query: Query<(Entity, &mut StarshipWeapons)>,
+    mut weapon_systems: Query<&mut WeaponSystem>,
 ) {
     for event in scroll_reader.iter(&scroll_events) {
-        // dbg!(event);
-        for (entity, mut weapons) in query.iter_mut() {
+        for mut system in weapon_systems.iter_mut() {
             match event.y.total_cmp(&0.) {
-                std::cmp::Ordering::Greater => weapons.next_weapon(entity, cmd),
-                std::cmp::Ordering::Less => weapons.prev_weapon(entity, cmd),
-                _ => {}
-            }
+                std::cmp::Ordering::Less => system.prev(),
+                std::cmp::Ordering::Greater => system.next(),
+                _ => continue,
+            };
         }
+    }
+}
+
+fn weapon_system_fire(
+    mut weapon_systems: Query<&mut WeaponSystem>,
+    mouse_input: Res<Input<MouseButton>>,
+) {
+    let is_firing = mouse_input.pressed(MouseButton::Left);
+
+    for mut system in weapon_systems.iter_mut() {
+        system.is_firing = is_firing;
     }
 }
 
 fn ship_cannon(
     commands: &mut Commands,
-    mouse_input: Res<Input<MouseButton>>,
-    mut query: Query<(&mut WeaponCannon, &Transform, &Target), With<Spaceship>>,
+    mut query: Query<(&mut WeaponCannon, &WeaponSlot, &GlobalTransform)>,
+    weapon_systems: Query<&WeaponSystem>,
     time: Res<Time>,
     materials: Res<GameMaterials>,
+    mouse_pos: Res<MouseWorldPos>,
 ) {
-    for (mut cannon, transform, target) in query.iter_mut() {
+    for (mut cannon, weapon_slot, transform) in query.iter_mut() {
         cannon.0.tick(time.delta_seconds());
 
-        if mouse_input.pressed(MouseButton::Left) && cannon.0.finished() {
+        let is_firing = weapon_systems
+            .get(weapon_slot.system)
+            .map_or(false, |system| system.is_firing(&weapon_slot));
+
+        if is_firing && cannon.0.finished() {
+            let shot_direction = mouse_pos.dir_from(transform.translation);
+
+            // dbg!(shot_direction);
             cannon.0.reset();
             commands
                 .spawn(SpriteBundle {
                     material: materials.bullet.clone(),
-                    transform: transform.clone(),
+                    transform: Transform::from_translation(transform.translation),
                     ..Default::default()
                 })
                 .with(CleanupAfterGame)
-                .with(Bullet(false))
-                .with(Movement::from(target.dir * 500.))
+                .with(Bullet::default())
+                .with(Movement::from(shot_direction * 500.))
                 .with(Lifetime::seconds(3))
                 .with(Collider(Vec2::new(16., 16.)));
         }
@@ -394,15 +469,19 @@ fn ship_cannon(
 }
 
 fn ship_laser(
-    mouse_input: Res<Input<MouseButton>>,
-    mut ships: Query<(&mut WeaponLaser, &Target), With<Spaceship>>,
+    mut lasers: Query<(&mut WeaponLaser, &WeaponSlot, &GlobalTransform)>,
+    weapon_systems: Query<&WeaponSystem>,
+    mouse_pos: Res<MouseWorldPos>,
 ) {
-    let is_left_pressed = mouse_input.pressed(MouseButton::Left);
+    for (mut laser, weapon_slot, transform) in lasers.iter_mut() {
+        let is_firing = weapon_systems
+            .get(weapon_slot.system)
+            .map_or(false, |system| system.is_firing(&weapon_slot));
 
-    for (mut laser, target) in ships.iter_mut() {
-        *laser = match is_left_pressed {
-            true => WeaponLaser::Firing(target.dir),
-            false => WeaponLaser::Idle,
+        if is_firing {
+            *laser = WeaponLaser::Firing(mouse_pos.dir_from(transform.translation));
+        } else {
+            *laser = WeaponLaser::Idle;
         }
     }
 }
@@ -448,7 +527,7 @@ fn laser_beam(
     mut hit_this_frame: Local<Vec<Entity>>,
     time: Res<Time>,
     obstacles: Query<(Entity, &Transform), With<HitableByLaser>>,
-    mut weapons: Query<(&WeaponLaser, &Transform)>,
+    mut weapons: Query<(&WeaponLaser, &GlobalTransform)>,
     mut hitables: Query<(Entity, &mut HitableByLaser)>,
     mut laser_beams: Query<(
         Entity,
@@ -631,10 +710,4 @@ pub fn ray_circle_intersection(start: Vec2, dir: Vec2, origin: Vec2, radius: f32
     }
     let thc = (radius * radius - d2).sqrt();
     Some(start + dir * (tca - thc))
-}
-
-fn around(point: Vec3, radius: f32) -> Vec3 {
-    let dir = Quat::from_rotation_z(random::<f32>() * std::f32::consts::TAU);
-
-    point + dir * Vec3::new(radius, 0., 0.0)
 }

@@ -5,6 +5,12 @@ pub struct Asteroid {
     pub hits_needed: u8,
 }
 
+impl Asteroid {
+    fn hit(&mut self) {
+        self.hits_needed = self.hits_needed.saturating_sub(1);
+    }
+}
+
 pub struct Shard;
 
 pub fn spawn_asteroids(
@@ -47,12 +53,12 @@ pub fn spawn_asteroids(
 
 pub fn bullets_hit_asteroids(
     cmd: &mut Commands,
-    mut asteroids: Query<(&Transform, &Collider)>,
+    mut asteroids: Query<(&mut Asteroid, &Transform, &Collider)>,
     mut bullets: Query<(&mut Bullet, Entity, &Transform, &Collider)>,
 ) {
-    for (transform, collider) in asteroids.iter_mut() {
+    for (mut asteroid, transform, collider) in asteroids.iter_mut() {
         for (mut bullet, bullet_entity, bullet_transform, bullet_collider) in bullets.iter_mut() {
-            if bullet.0 == false
+            if !bullet.already_hit
                 && collide(
                     transform.translation,
                     collider.0,
@@ -61,7 +67,8 @@ pub fn bullets_hit_asteroids(
                 )
                 .is_some()
             {
-                bullet.0 = true;
+                bullet.already_hit = true;
+                asteroid.hit();
                 cmd.despawn(bullet_entity);
             }
         }
@@ -116,3 +123,10 @@ pub fn asteroid_damage(
         }
     }
 }
+
+fn around(point: Vec3, radius: f32) -> Vec3 {
+    let dir = Quat::from_rotation_z(random::<f32>() * std::f32::consts::TAU);
+
+    point + dir * Vec3::new(radius, 0., 0.0)
+}
+
