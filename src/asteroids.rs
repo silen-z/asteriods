@@ -6,7 +6,7 @@ pub struct Asteroid {
 }
 
 impl Asteroid {
-    fn hit(&mut self) {
+    pub fn hit(&mut self) {
         self.hits_needed = self.hits_needed.saturating_sub(1);
     }
 }
@@ -15,12 +15,13 @@ pub struct Shard;
 
 pub fn spawn_asteroids(
     commands: &mut Commands,
-    query: Query<(Entity, &Transform), With<Spaceship>>,
+    ship: Res<PlayerSpaceship>,
+    ships: Query<(Entity, &Transform)>,
     asteroids: Query<(), With<Asteroid>>,
     materials: Res<GameMaterials>,
 ) {
     if asteroids.iter().count() < 5 {
-        if let Some((entity, spaceship)) = query.iter().next() {
+        if let Ok((entity, spaceship)) = ships.get(ship.0) {
             let mut position = around(spaceship.translation, 1000.);
 
             let direction = (spaceship.translation - position).normalize() * 100.0;
@@ -37,7 +38,7 @@ pub fn spawn_asteroids(
                 })
                 .with(CleanupAfterGame)
                 .with(Asteroid { hits_needed: 3 })
-                .with(Movement::from(direction))
+                .with(Velocity::from(direction))
                 .with(Rotation::from(rot))
                 .with(Collider(Vec2::new(16., 16.)))
                 .with(HitableByLaser {
@@ -47,39 +48,6 @@ pub fn spawn_asteroids(
                     anchor: entity,
                     distance: 1200.0,
                 });
-        }
-    }
-}
-
-pub fn bullets_hit_asteroids(
-    cmd: &mut Commands,
-    mut asteroids: Query<(&mut Asteroid, &Transform, &Collider)>,
-    mut bullets: Query<(&mut Bullet, Entity, &Transform, &Collider)>,
-) {
-    for (mut asteroid, transform, collider) in asteroids.iter_mut() {
-        for (mut bullet, bullet_entity, bullet_transform, bullet_collider) in bullets.iter_mut() {
-            if !bullet.already_hit
-                && collide(
-                    transform.translation,
-                    collider.0,
-                    bullet_transform.translation,
-                    bullet_collider.0,
-                )
-                .is_some()
-            {
-                bullet.already_hit = true;
-                asteroid.hit();
-                cmd.despawn(bullet_entity);
-            }
-        }
-    }
-}
-
-pub fn laser_beams_hit_asteroids(mut asteroids: Query<(&mut Asteroid, &mut HitableByLaser)>) {
-    for (mut asteroid, mut hitable) in asteroids.iter_mut() {
-        if hitable.damage_tick.just_finished() {
-            hitable.damage_tick.reset();
-            asteroid.hits_needed = asteroid.hits_needed.saturating_sub(1);
         }
     }
 }
@@ -96,7 +64,7 @@ pub fn asteroid_damage(
         sprite.index = 3 - asteroid.hits_needed as u32;
 
         if asteroid.hits_needed == 0 {
-            cmd.remove::<(Movement, Collider, HitableByLaser)>(entity)
+            cmd.remove::<(Velocity, Collider, HitableByLaser)>(entity)
                 .insert_one(entity, Lifetime::millis(200));
 
             for i in 1..=5 {
@@ -117,7 +85,7 @@ pub fn asteroid_damage(
                 })
                 .with(CleanupAfterGame)
                 .with(Shard)
-                .with(Movement::from(dir * Vec3::unit_x() * 15.0))
+                .with(Velocity::from(dir * Vec3::unit_x() * 15.0))
                 .with(Lifetime::seconds(2));
             }
         }
@@ -129,4 +97,3 @@ fn around(point: Vec3, radius: f32) -> Vec3 {
 
     point + dir * Vec3::new(radius, 0., 0.0)
 }
-

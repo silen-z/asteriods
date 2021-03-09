@@ -1,10 +1,11 @@
 #![feature(total_cmp)]
 
 mod asteroids;
-mod lifetime;
-mod macros;
+mod basics;
+mod level_generation;
+mod math;
 mod menu;
-mod movement;
+mod weapons;
 
 use std::f32::consts::TAU;
 
@@ -13,17 +14,60 @@ use bevy::prelude::*;
 use bevy::sprite::collide_aabb::collide;
 
 use asteroids::*;
+use basics::*;
 use bevy::render::camera::Camera;
-use lifetime::*;
-use movement::*;
-use rand::{random, thread_rng, Rng as _};
+use level_generation::*;
+use rand::{random, thread_rng, Rng as _, SeedableRng};
+use weapons::*;
 
 pub const APP_STATE_STAGE: &str = "app_state_stage";
-
 #[derive(Clone)]
 pub enum AppState {
     Menu,
     InGame,
+}
+
+fn main() {
+    let mut app_state_stage = StateStage::<AppState>::default();
+    app_state_stage
+        .on_state_enter(AppState::InGame, start_game.system())
+        .on_state_update(AppState::InGame, generate_background.system())
+        .on_state_update(AppState::InGame, cleanup_chunks.system())
+        .on_state_update(AppState::InGame, continuous_rotation.system())
+        .on_state_update(AppState::InGame, lifetime.system())
+        .on_state_update(AppState::InGame, maximum_distance_from.system())
+        .on_state_update(AppState::InGame, sprite_animation.system())
+        .on_state_update(AppState::InGame, spawn_asteroids.system())
+        .on_state_update(AppState::InGame, mouse_position.system())
+        .on_state_update(AppState::InGame, ship_movement.system())
+        .on_state_update(AppState::InGame, movement.system())
+        .on_state_update(AppState::InGame, camera_follow.system())
+        .on_state_update(AppState::InGame, weapon_system_switch_weapon.system())
+        .on_state_update(AppState::InGame, weapon_system_fire.system())
+        .on_state_update(AppState::InGame, ship_cannon.system())
+        .on_state_update(AppState::InGame, ship_laser.system())
+        .on_state_update(AppState::InGame, laser_beam_init.system())
+        .on_state_update(AppState::InGame, laser_beam.system())
+        .on_state_update(AppState::InGame, laser_impact.system())
+        .on_state_update(AppState::InGame, bullets_hit_asteroids.system())
+        .on_state_update(AppState::InGame, laser_beams_hit_asteroids.system())
+        .on_state_update(AppState::InGame, asteroid_damage.system())
+        .on_state_update(AppState::InGame, asteroids_hit_ship.system())
+        .on_state_update(AppState::InGame, ship_eats_shards.system())
+        .on_state_update(AppState::InGame, hud.system())
+        .on_state_exit(AppState::InGame, cleanup::<CleanupAfterGame>.system());
+
+    App::build()
+        .add_plugins(DefaultPlugins)
+        .add_resource(ClearColor(Color::rgb_u8(7, 0, 17)))
+        .add_startup_system(setup.system())
+        .add_resource(State::new(AppState::Menu))
+        .add_resource(MouseWorldPos::default())
+        .add_resource(LevelGenerator::new(123))
+        .init_resource::<GameMaterials>()
+        .add_stage_after(stage::UPDATE, APP_STATE_STAGE, app_state_stage)
+        .add_plugin(menu::MenuPlugin)
+        .run();
 }
 
 pub struct GameMaterials {
@@ -33,6 +77,8 @@ pub struct GameMaterials {
     health_bar: Handle<ColorMaterial>,
     laser: Handle<ColorMaterial>,
     laser_impact: Handle<TextureAtlas>,
+    nebulas: Vec<Handle<ColorMaterial>>,
+    star: Handle<ColorMaterial>,
 }
 
 impl FromResources for GameMaterials {
@@ -54,82 +100,14 @@ impl FromResources for GameMaterials {
             health_bar: materials.add(asset_server.load("ui/health_bar.png").into()),
             laser: materials.add(Color::RED.into()),
             laser_impact: texture_atlases.add(laser_impact.into()),
+            nebulas: vec![
+                materials.add(asset_server.load("nebula1.png").into()),
+                materials.add(asset_server.load("nebula2.png").into()),
+                materials.add(asset_server.load("nebula3.png").into()),
+            ],
+            star: materials.add(asset_server.load("star.png").into()),
         }
     }
-}
-
-fn main() {
-    let mut app_state_stage = StateStage::<AppState>::default();
-    app_state_stage
-        .on_state_enter(AppState::InGame, start_game.system())
-        .on_state_update(AppState::InGame, continuous_movement.system())
-        .on_state_update(AppState::InGame, continuous_rotation.system())
-        .on_state_update(AppState::InGame, lifetime.system())
-        .on_state_update(AppState::InGame, maximum_distance_from.system())
-        .on_state_update(AppState::InGame, sprite_animation.system())
-        .on_state_update(AppState::InGame, spawn_asteroids.system())
-        .on_state_update(AppState::InGame, targeting.system())
-        .on_state_update(AppState::InGame, ship_movement.system())
-        .on_state_update(AppState::InGame, weapon_system_switch_weapon.system())
-        .on_state_update(AppState::InGame, weapon_system_fire.system())
-        .on_state_update(AppState::InGame, ship_cannon.system())
-        .on_state_update(AppState::InGame, ship_laser.system())
-        .on_state_update(AppState::InGame, laser_beam.system())
-        .on_state_update(AppState::InGame, laser_impact.system())
-        .on_state_update(AppState::InGame, bullets_hit_asteroids.system())
-        .on_state_update(AppState::InGame, laser_beams_hit_asteroids.system())
-        .on_state_update(AppState::InGame, asteroid_damage.system())
-        .on_state_update(AppState::InGame, asteroids_hit_ship.system())
-        .on_state_update(AppState::InGame, ship_eats_shards.system())
-        .on_state_update(AppState::InGame, hud.system())
-        .on_state_exit(AppState::InGame, cleanup::<CleanupAfterGame>.system());
-
-    let mut laser_beam_stage = SystemStage::parallel();
-    laser_beam_stage.add_system(laser_beam_init.system());
-
-    App::build()
-        .add_plugins(DefaultPlugins)
-        .add_resource(ClearColor(Color::rgb_u8(7, 0, 17)))
-        .add_startup_system(setup.system())
-        .add_resource(State::new(AppState::Menu))
-        .add_resource(MouseWorldPos::default())
-        .init_resource::<GameMaterials>()
-        .add_stage_after(stage::UPDATE, APP_STATE_STAGE, app_state_stage)
-        .add_stage_after(APP_STATE_STAGE, "laser_beam_stage", laser_beam_stage)
-        .add_plugin(menu::MenuPlugin)
-        .run();
-}
-
-struct WeaponSlot {
-    system: Entity,
-    slot: usize,
-}
-
-struct WeaponCannon(Timer);
-
-impl Default for WeaponCannon {
-    fn default() -> Self {
-        WeaponCannon(Timer::from_seconds(0.150, false))
-    }
-}
-
-enum WeaponLaser {
-    Idle,
-    Firing(Vec3),
-}
-
-impl Default for WeaponLaser {
-    fn default() -> Self {
-        WeaponLaser::Idle
-    }
-}
-
-struct LaserBeam(bool);
-
-struct LaserImpact;
-
-pub struct HitableByLaser {
-    damage_tick: Timer,
 }
 
 pub struct Spaceship {
@@ -138,7 +116,7 @@ pub struct Spaceship {
 }
 
 #[derive(Default)]
-struct MouseWorldPos(Vec3);
+pub struct MouseWorldPos(Vec3);
 
 impl MouseWorldPos {
     fn dir_from(&self, pos: Vec3) -> Vec3 {
@@ -150,48 +128,8 @@ impl MouseWorldPos {
 
 pub struct Collider(Vec2);
 
-#[derive(Default)]
-pub struct Bullet {
-    already_hit: bool,
-}
-
-struct SpriteAnimation {
-    timer: Timer,
-    current: u32,
-    frames: u32,
-}
-
-impl SpriteAnimation {
-    fn new(millis: u32, frames: u32) -> Self {
-        SpriteAnimation {
-            timer: Timer::from_seconds(millis as f32 / 1000., true),
-            current: 0,
-            frames,
-        }
-    }
-
-    fn next(&mut self) -> u32 {
-        self.current = (self.current + 1) % self.frames;
-        self.current
-    }
-}
-#[derive(Bundle)]
-struct WeaponBundle<W> {
-    weapon_slot: WeaponSlot,
-    transform: Transform,
-    global_transform: GlobalTransform,
-    weapon: W,
-}
-
-impl<W> WeaponBundle<W> {
-    fn new(weapon: W, slot: usize, system: Entity) -> Self {
-        Self {
-            weapon_slot: WeaponSlot { slot, system },
-            transform: Transform::default(),
-            global_transform: GlobalTransform::default(),
-            weapon,
-        }
-    }
+pub struct HitableByLaser {
+    damage_tick: Timer,
 }
 
 struct Healthbar;
@@ -199,10 +137,18 @@ struct Score;
 
 struct CleanupAfterGame;
 
+pub struct PlayerSpaceship(Entity);
+
+struct MainCamera(Entity);
+
 fn setup(commands: &mut Commands) {
-    commands
+    commands.spawn(CameraUiBundle::default());
+
+    let main_camera = commands
         .spawn(Camera2dBundle::default())
-        .spawn(CameraUiBundle::default());
+        .current_entity()
+        .unwrap();
+    commands.insert_resource(MainCamera(main_camera));
 }
 
 fn start_game(
@@ -210,14 +156,17 @@ fn start_game(
     asset_server: Res<AssetServer>,
     sprites: Res<GameMaterials>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    main_camera: Res<MainCamera>,
 ) {
-    commands
+    let spaceship = commands
         .spawn(SpriteBundle {
             material: sprites.ship.clone(),
             ..Default::default()
         })
         .with(Spaceship { hp: 100, score: 0 })
+        .with(Velocity::default())
         .with(CleanupAfterGame)
+        .with(ChunkExplorer)
         .with(Collider(Vec2::new(16., 48.)))
         .with(WeaponSystem {
             slots: 2,
@@ -235,9 +184,15 @@ fn start_game(
                 1,
                 ship.parent_entity(),
             ));
-        });
+        })
+        .current_entity()
+        .unwrap();
 
-    // TEST ASTERIOD
+    commands.insert_resource(PlayerSpaceship(spaceship));
+
+    commands.insert_one(main_camera.0, CameraFollow(spaceship));
+
+    // TEST STATIC ASTERIOD
     commands
         .spawn(SpriteSheetBundle {
             texture_atlas: sprites.asteroid.clone(),
@@ -330,16 +285,22 @@ fn start_game(
         });
 }
 
-fn targeting(
+fn mouse_position(
+    main_camera: Res<MainCamera>,
     windows: Res<Windows>,
     camera_query: Query<&Transform, With<Camera>>,
     cursor_moved_events: Res<Events<CursorMoved>>,
     mut cursor_moved_reader: Local<EventReader<CursorMoved>>,
     mut mouse_world_pos: ResMut<MouseWorldPos>,
+    mut last_mouse_event: Local<Option<CursorMoved>>,
 ) {
-    use bevy::math::Vec4Swizzles as _;
-    if let Some(event) = cursor_moved_reader.latest(&cursor_moved_events) {
-        let camera_transform = camera_query.iter().next().unwrap();
+    if let Some(last_event) = cursor_moved_reader.latest(&cursor_moved_events) {
+        *last_mouse_event = Some(last_event.clone());
+    }
+
+    if let Some(event) = last_mouse_event.as_ref() {
+        use bevy::math::Vec4Swizzles as _;
+        let camera_transform = camera_query.get(main_camera.0).unwrap();
         let window = windows.get(event.id).unwrap();
         let window_size = Vec2::new(window.width() as f32, window.height() as f32);
         let p = event.position - window_size * 0.5;
@@ -348,268 +309,62 @@ fn targeting(
     }
 }
 
-const SHIP_SPEED: f32 = 50.0;
+const SHIP_SPEED_GAIN: f32 = 1000.0;
+const SHIP_MAX_SPEED: f32 = 500.0;
+
+const ROTATION_CLAMP: f32 = TAU / 8.;
 
 fn ship_movement(
     mouse_input: Res<Input<MouseButton>>,
-    mut spaceship_query: Query<&mut Transform, With<Spaceship>>,
+    keys: Res<Input<KeyCode>>,
+    mut ships: Query<(&mut Transform, &mut Velocity), With<Spaceship>>,
     time: Res<Time>,
     mouse_pos: Res<MouseWorldPos>,
 ) {
-    for mut transform in spaceship_query.iter_mut() {
-        if transform.translation.distance_squared(mouse_pos.0) > 0.1 {
-            let dir_to_target = mouse_pos.dir_from(transform.translation);
-            let angle = Vec3::unit_y().angle_between(dir_to_target) * -dir_to_target.x.signum();
-            transform.rotation = Quat::from_rotation_z(angle);
+    for (mut transform, mut velocity) in ships.iter_mut() {
+        let dir_to_target = mouse_pos.dir_from(transform.translation);
 
-            let speed = if mouse_input.pressed(MouseButton::Right) {
-                SHIP_SPEED * 5.0
-            } else {
-                0.0 //SHIP_SPEED
-            };
+        let angle = Vec3::unit_y().angle_between(dir_to_target) * -dir_to_target.x.signum()
+            - (ROTATION_CLAMP * 0.5);
 
-            let movement = dir_to_target * speed * time.delta_seconds();
+        let angle = ROTATION_CLAMP * (angle / ROTATION_CLAMP).ceil();
 
-            transform.translation += movement;
-        }
-    }
-}
+        transform.rotation = Quat::from_rotation_z(angle);
 
-struct WeaponSystem {
-    current: usize,
-    slots: usize,
-    is_firing: bool,
-}
+        // let x =0.;
+        // let y = 0.;
+        let mut acceleration = Vec3::default();
 
-impl WeaponSystem {
-    fn is_firing(&self, weapon: &WeaponSlot) -> bool {
-        self.is_firing && weapon.slot == self.current
-    }
-
-    fn prev(&mut self) -> usize {
-        if self.current == 0 {
-            self.current = self.slots - 1;
+        if mouse_input.pressed(MouseButton::Right) {
+            acceleration += dir_to_target;
         } else {
-            self.current -= 1;
-        }
-        self.current
-    }
-
-    fn next(&mut self) -> usize {
-        if self.current == self.slots - 1 {
-            self.current = 0;
-        } else {
-            self.current += 1;
-        }
-        self.current
-    }
-}
-
-fn weapon_system_switch_weapon(
-    // cmd: &mut Commands,
-    scroll_events: Res<Events<MouseWheel>>,
-    mut scroll_reader: Local<EventReader<MouseWheel>>,
-    mut weapon_systems: Query<&mut WeaponSystem>,
-) {
-    for event in scroll_reader.iter(&scroll_events) {
-        for mut system in weapon_systems.iter_mut() {
-            match event.y.total_cmp(&0.) {
-                std::cmp::Ordering::Less => system.prev(),
-                std::cmp::Ordering::Greater => system.next(),
-                _ => continue,
-            };
-        }
-    }
-}
-
-fn weapon_system_fire(
-    mut weapon_systems: Query<&mut WeaponSystem>,
-    mouse_input: Res<Input<MouseButton>>,
-) {
-    let is_firing = mouse_input.pressed(MouseButton::Left);
-
-    for mut system in weapon_systems.iter_mut() {
-        system.is_firing = is_firing;
-    }
-}
-
-fn ship_cannon(
-    commands: &mut Commands,
-    mut query: Query<(&mut WeaponCannon, &WeaponSlot, &GlobalTransform)>,
-    weapon_systems: Query<&WeaponSystem>,
-    time: Res<Time>,
-    materials: Res<GameMaterials>,
-    mouse_pos: Res<MouseWorldPos>,
-) {
-    for (mut cannon, weapon_slot, transform) in query.iter_mut() {
-        cannon.0.tick(time.delta_seconds());
-
-        let is_firing = weapon_systems
-            .get(weapon_slot.system)
-            .map_or(false, |system| system.is_firing(&weapon_slot));
-
-        if is_firing && cannon.0.finished() {
-            let shot_direction = mouse_pos.dir_from(transform.translation);
-
-            // dbg!(shot_direction);
-            cannon.0.reset();
-            commands
-                .spawn(SpriteBundle {
-                    material: materials.bullet.clone(),
-                    transform: Transform::from_translation(transform.translation),
-                    ..Default::default()
-                })
-                .with(CleanupAfterGame)
-                .with(Bullet::default())
-                .with(Movement::from(shot_direction * 500.))
-                .with(Lifetime::seconds(3))
-                .with(Collider(Vec2::new(16., 16.)));
-        }
-    }
-}
-
-fn ship_laser(
-    mut lasers: Query<(&mut WeaponLaser, &WeaponSlot, &GlobalTransform)>,
-    weapon_systems: Query<&WeaponSystem>,
-    mouse_pos: Res<MouseWorldPos>,
-) {
-    for (mut laser, weapon_slot, transform) in lasers.iter_mut() {
-        let is_firing = weapon_systems
-            .get(weapon_slot.system)
-            .map_or(false, |system| system.is_firing(&weapon_slot));
-
-        if is_firing {
-            *laser = WeaponLaser::Firing(mouse_pos.dir_from(transform.translation));
-        } else {
-            *laser = WeaponLaser::Idle;
-        }
-    }
-}
-
-fn laser_beam_init(
-    commands: &mut Commands,
-    added_laser_weapons: Query<Entity, Added<WeaponLaser>>,
-    sprites: Res<GameMaterials>,
-) {
-    for entity in added_laser_weapons.iter() {
-        commands
-            .spawn(SpriteBundle {
-                material: sprites.laser.clone(),
-                sprite: Sprite {
-                    size: Vec2::new(1., 150.),
-                    ..Default::default()
-                },
-                transform: Transform::from_translation(Vec3::new(0., 75., 5.)),
-                visible: Visible {
-                    is_visible: false,
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .with(Parent(entity))
-            .with(LaserBeam(false))
-            .with(CleanupAfterGame)
-            .with_children(|parent| {
-                parent
-                    .spawn(SpriteSheetBundle {
-                        texture_atlas: sprites.laser_impact.clone(),
-                        ..Default::default()
-                    })
-                    .with(LaserImpact)
-                    .with(SpriteAnimation::new(150, 4))
-                    .with(CleanupAfterGame);
-            });
-    }
-}
-
-fn laser_beam(
-    cmd: &mut Commands,
-    mut hit_this_frame: Local<Vec<Entity>>,
-    time: Res<Time>,
-    obstacles: Query<(Entity, &Transform), With<HitableByLaser>>,
-    mut weapons: Query<(&WeaponLaser, &GlobalTransform)>,
-    mut hitables: Query<(Entity, &mut HitableByLaser)>,
-    mut laser_beams: Query<(
-        Entity,
-        &mut LaserBeam,
-        &mut Sprite,
-        &mut Visible,
-        &mut Transform,
-        &Parent,
-    )>,
-) {
-    use bevy::math::Vec3Swizzles as _;
-
-    hit_this_frame.clear();
-
-    for (entity, mut laser_beam, mut sprite, mut visible, mut transform, parent) in
-        laser_beams.iter_mut()
-    {
-        let (weapon, weapon_transform) = match weapons.get_mut(parent.0) {
-            Ok(e) => e,
-            Err(_) => {
-                cmd.despawn_recursive(entity);
-                continue;
-            }
-        };
-
-        if let WeaponLaser::Firing(beam_dir) = weapon {
-            let beam_origin = weapon_transform.translation.xy();
-
-            let closest_hit = obstacles
-                .iter()
-                .filter_map(|(e, obstacle)| {
-                    ray_circle_intersection(
-                        beam_origin,
-                        beam_dir.xy(),
-                        obstacle.translation.xy(),
-                        16.,
-                    )
-                    .map(|hit| (e, hit))
-                })
-                .min_by(|(_, hit1), (_, hit2)| {
-                    hit1.distance_squared(beam_origin)
-                        .total_cmp(&hit2.distance_squared(beam_origin))
-                });
-
-            if let Some((entity, _)) = closest_hit {
-                hit_this_frame.push(entity);
+            if keys.pressed(KeyCode::W) {
+                acceleration.y += 1.;
             }
 
-            let beam_length = closest_hit
-                .map(|(_, hit)| beam_origin.distance(hit))
-                .unwrap_or(1000.);
+            if keys.pressed(KeyCode::A) {
+                acceleration.x -= 1.;
+            }
 
-            sprite.size.y = beam_length;
-            transform.translation.y = beam_length * 0.5;
+            if keys.pressed(KeyCode::S) {
+                acceleration.y -= 1.;
+            }
 
-            visible.is_visible = true;
-            laser_beam.0 = closest_hit.is_some();
-        } else {
-            visible.is_visible = false;
-            laser_beam.0 = false;
+            if keys.pressed(KeyCode::D) {
+                acceleration.x += 1.;
+            }
         }
-    }
 
-    for (e, mut hitable) in hitables.iter_mut() {
-        if hit_this_frame.contains(&e) {
-            hitable.damage_tick.tick(time.delta_seconds());
+        if acceleration.length_squared() > 0. {
+            let gain = acceleration.normalize() * SHIP_SPEED_GAIN * time.delta_seconds();
+            velocity.0 = (velocity.0 + gain)
+                .min(Vec3::splat(SHIP_MAX_SPEED))
+                .max(-Vec3::splat(SHIP_MAX_SPEED));
         } else {
-            hitable.damage_tick.reset();
-        }
-    }
-}
-
-fn laser_impact(
-    mut impacts: Query<(&mut Transform, &mut Visible, &Parent), With<LaserImpact>>,
-    beams: Query<(&LaserBeam, &Sprite)>,
-) {
-    for (mut transform, mut visible, parent) in impacts.iter_mut() {
-        if let Ok((beam, beam_sprite)) = beams.get(parent.0) {
-            visible.is_visible = beam.0;
-            transform.translation.y = beam_sprite.size.y * 0.5;
-        } else {
-            bevy::log::warn!("LaserImapct doesn't have Parent");
+            velocity.0 = Vec3::max(
+                velocity.0 - Vec3::splat(SHIP_SPEED_GAIN) * time.delta_seconds(),
+                Vec3::zero(),
+            );
         }
     }
 }
@@ -632,7 +387,7 @@ fn asteroids_hit_ship(
             {
                 sprite.index = 3;
 
-                cmd.remove::<(Movement, Collider)>(asteroid)
+                cmd.remove::<(Velocity, Collider)>(asteroid)
                     .insert_one(asteroid, Lifetime::millis(200));
 
                 ship.hp = ship.hp.saturating_sub(10);
@@ -646,12 +401,45 @@ fn asteroids_hit_ship(
     }
 }
 
+pub fn bullets_hit_asteroids(
+    cmd: &mut Commands,
+    mut asteroids: Query<(&mut Asteroid, &Transform, &Collider)>,
+    mut bullets: Query<(&mut Bullet, Entity, &Transform, &Collider)>,
+) {
+    for (mut asteroid, transform, collider) in asteroids.iter_mut() {
+        for (mut bullet, bullet_entity, bullet_transform, bullet_collider) in bullets.iter_mut() {
+            if !bullet.already_hit
+                && collide(
+                    transform.translation,
+                    collider.0,
+                    bullet_transform.translation,
+                    bullet_collider.0,
+                )
+                .is_some()
+            {
+                bullet.already_hit = true;
+                asteroid.hit();
+                cmd.despawn(bullet_entity);
+            }
+        }
+    }
+}
+
+pub fn laser_beams_hit_asteroids(mut asteroids: Query<(&mut Asteroid, &mut HitableByLaser)>) {
+    for (mut asteroid, mut hitable) in asteroids.iter_mut() {
+        if hitable.damage_tick.just_finished() {
+            hitable.damage_tick.reset();
+            asteroid.hits_needed = asteroid.hits_needed.saturating_sub(1);
+        }
+    }
+}
+
 fn ship_eats_shards(
     cmd: &mut Commands,
-    mut ship: Query<(&mut Spaceship, &Transform)>,
+    mut ships: Query<(&mut Spaceship, &Transform)>,
     mut shards: Query<(Entity, &mut Transform), With<Shard>>,
 ) {
-    if let Some((mut ship, ship_transform)) = ship.iter_mut().next() {
+    for (mut ship, ship_transform) in ships.iter_mut() {
         for (entity, transform) in shards.iter_mut() {
             let dist = ship_transform
                 .translation
@@ -665,23 +453,26 @@ fn ship_eats_shards(
     }
 }
 
-fn sprite_animation(
-    mut query: Query<(&mut SpriteAnimation, &mut TextureAtlasSprite)>,
-    time: Res<Time>,
+fn camera_follow(
+    spaceship: Res<PlayerSpaceship>,
+    main_camera: Res<MainCamera>,
+    spaceships: Query<&Transform, With<Spaceship>>,
+    mut cameras: Query<&mut Transform, With<Camera>>,
 ) {
-    for (mut anim, mut sprite) in query.iter_mut() {
-        if anim.timer.tick(time.delta_seconds()).just_finished() {
-            sprite.index = anim.next();
-        }
+    if let Ok(ship) = spaceships.get(spaceship.0) {
+        let mut camera = cameras.get_mut(main_camera.0).unwrap();
+        camera.translation.x = ship.translation.x;
+        camera.translation.y = ship.translation.y;
     }
 }
 
 fn hud(
-    spaceship: Query<&Spaceship>,
+    ship: Res<PlayerSpaceship>,
+    ships: Query<&Spaceship>,
     mut healthbar: Query<&mut Style, With<Healthbar>>,
     mut score: Query<&mut Text, With<Score>>,
 ) {
-    if let Some(ship) = spaceship.iter().next() {
+    if let Ok(ship) = ships.get(ship.0) {
         for mut style in healthbar.iter_mut() {
             style.max_size.width = Val::Percent(ship.hp as f32);
         }
@@ -690,24 +481,4 @@ fn hud(
             text.value = ship.score.to_string();
         }
     }
-}
-
-fn cleanup<C: Component>(cmd: &mut Commands, query: Query<Entity, With<C>>) {
-    for entity in query.iter() {
-        cmd.despawn(entity);
-    }
-}
-
-pub fn ray_circle_intersection(start: Vec2, dir: Vec2, origin: Vec2, radius: f32) -> Option<Vec2> {
-    let l = -(start - origin);
-    let tca = l.dot(dir);
-    if tca < 0. {
-        return None;
-    }
-    let d2 = l.dot(l) - tca * tca;
-    if d2 > radius * radius {
-        return None;
-    }
-    let thc = (radius * radius - d2).sqrt();
-    Some(start + dir * (tca - thc))
 }
