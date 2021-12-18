@@ -1,5 +1,5 @@
 use super::*;
-use bevy::{prelude::*, utils::HashSet};
+use bevy::{ecs::component::Component, prelude::*, utils::HashSet};
 
 pub struct WeaponSystem {
     pub current: usize,
@@ -37,14 +37,14 @@ pub struct WeaponSlot {
 }
 
 #[derive(Bundle)]
-pub struct WeaponBundle<W> {
+pub struct WeaponBundle<W: Component> {
     weapon_slot: WeaponSlot,
     transform: Transform,
     global_transform: GlobalTransform,
     weapon: W,
 }
 
-impl<W> WeaponBundle<W> {
+impl<W: Component> WeaponBundle<W> {
     pub fn new(weapon: W, slot: usize, system: Entity) -> Self {
         Self {
             weapon_slot: WeaponSlot { slot, system },
@@ -78,17 +78,18 @@ impl Default for WeaponLaser {
     }
 }
 
-pub struct LaserBeam(bool);
+pub struct LaserBeam {
+    origin: Entity,
+    impacted: bool,
+}
 
 pub struct LaserImpact;
 
 pub fn weapon_system_switch_weapon(
-    // cmd: &mut Commands,
-    scroll_events: Res<Events<MouseWheel>>,
-    mut scroll_reader: Local<EventReader<MouseWheel>>,
+    mut scroll_reader: EventReader<MouseWheel>,
     mut weapon_systems: Query<&mut WeaponSystem>,
 ) {
-    for event in scroll_reader.iter(&scroll_events) {
+    for event in scroll_reader.iter() {
         for mut system in weapon_systems.iter_mut() {
             match event.y.total_cmp(&0.) {
                 std::cmp::Ordering::Less => system.prev(),
@@ -113,34 +114,41 @@ pub fn weapon_system_fire(
 const BULLET_SPEED: f32 = 1000.;
 
 pub fn ship_cannon(
-    commands: &mut Commands,
+    mut commands: Commands,
     mut query: Query<(&mut WeaponCannon, &WeaponSlot, &GlobalTransform)>,
     weapon_systems: Query<&WeaponSystem>,
     time: Res<Time>,
     materials: Res<GameMaterials>,
+    mouse_pos: Res<MouseWorldPos>,
 ) {
     for (mut cannon, weapon_slot, transform) in query.iter_mut() {
-        cannon.0.tick(time.delta_seconds());
+        cannon.0.tick(time.delta());
 
         let is_firing = weapon_systems
             .get(weapon_slot.system)
             .map_or(false, |system| system.is_firing(&weapon_slot));
 
         if is_firing && cannon.0.finished() {
-            let shot_direction = transform.rotation * Vec3::unit_y();
+            let shot_direction = mouse_pos.dir_from(transform.translation);
+
+            let angle = shot_direction.angle_between(Vec3::Y) * -shot_direction.x.signum();
 
             cannon.0.reset();
             commands
-                .spawn(SpriteBundle {
+                .spawn_bundle(SpriteBundle {
                     material: materials.bullet.clone(),
-                    transform: Transform::from_translation(transform.translation),
+                    transform: Transform {
+                        translation: transform.translation,
+                        rotation: Quat::from_rotation_z(angle),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 })
-                .with(CleanupAfterGame)
-                .with(Bullet::default())
-                .with(Velocity::from(shot_direction * BULLET_SPEED))
-                .with(Lifetime::seconds(3))
-                .with(Collider(Vec2::new(16., 16.)));
+                .insert(CleanupAfterGame)
+                .insert(Bullet::default())
+                .insert(Velocity::from(shot_direction.normalize() * BULLET_SPEED))
+                .insert(Lifetime::seconds(3))
+                .insert(Collider(Vec2::new(16., 16.)));
         }
     }
 }
@@ -164,43 +172,45 @@ pub fn ship_laser(
 }
 
 pub fn laser_beam_init(
-    commands: &mut Commands,
+    mut commands: Commands,
     added_laser_weapons: Query<Entity, Added<WeaponLaser>>,
     sprites: Res<GameMaterials>,
 ) {
     for entity in added_laser_weapons.iter() {
         commands
-            .spawn(SpriteBundle {
+            .spawn_bundle(SpriteBundle {
                 material: sprites.laser.clone(),
                 sprite: Sprite {
-                    size: Vec2::new(1., 150.),
+                    size: Vec2::new(2., 1.),
+                    resize_mode: SpriteResizeMode::Manual,
                     ..Default::default()
                 },
-                transform: Transform::from_translation(Vec3::new(0., 75., 5.)),
                 visible: Visible {
                     is_visible: false,
                     ..Default::default()
                 },
                 ..Default::default()
             })
-            .with(Parent(entity))
-            .with(LaserBeam(false))
-            .with(CleanupAfterGame)
+            .insert(LaserBeam {
+                origin: entity,
+                impacted: false,
+            })
+            .insert(CleanupAfterGame)
             .with_children(|parent| {
                 parent
-                    .spawn(SpriteSheetBundle {
+                    .spawn_bundle(SpriteSheetBundle {
                         texture_atlas: sprites.laser_impact.clone(),
                         ..Default::default()
                     })
-                    .with(LaserImpact)
-                    .with(SpriteAnimation::new(150, 4))
-                    .with(CleanupAfterGame);
+                    .insert(LaserImpact)
+                    .insert(SpriteAnimation::new(150, 4))
+                    .insert(CleanupAfterGame);
             });
     }
 }
 
 pub fn laser_beam(
-    cmd: &mut Commands,
+    mut cmd: Commands,
     time: Res<Time>,
     mut hitables: Query<(Entity, &GlobalTransform, &mut HitableByLaser)>,
     mut weapons: Query<(&WeaponLaser, &GlobalTransform)>,
@@ -210,7 +220,6 @@ pub fn laser_beam(
         &mut Sprite,
         &mut Visible,
         &mut Transform,
-        &Parent,
     )>,
     mut hit_this_frame: Local<HashSet<Entity>>,
 ) {
@@ -218,13 +227,11 @@ pub fn laser_beam(
 
     hit_this_frame.clear();
 
-    for (entity, mut laser_beam, mut sprite, mut visible, mut transform, parent) in
-        laser_beams.iter_mut()
-    {
-        let (weapon, weapon_transform) = match weapons.get_mut(parent.0) {
+    for (entity, mut laser_beam, mut sprite, mut visible, mut transform) in laser_beams.iter_mut() {
+        let (weapon, weapon_transform) = match weapons.get_mut(laser_beam.origin) {
             Ok(e) => e,
             _ => {
-                cmd.despawn_recursive(entity);
+                cmd.entity(entity).despawn_recursive();
                 continue;
             }
         };
@@ -250,23 +257,25 @@ pub fn laser_beam(
                     )
                 });
 
-            let beam_length = closest_hit
+            let beam_end = closest_hit
                 .as_ref()
-                .map(|(hit, _, _)| beam_origin.distance(*hit))
-                .unwrap_or(1000.);
+                .map_or_else(|| beam_origin + (beam_dir.xy() * 1000.), |(hit, _, _)| *hit);
 
             visible.is_visible = true;
-            sprite.size.y = beam_length;
-            transform.translation.y = beam_length * 0.5;
-            laser_beam.0 = closest_hit.is_some();
+            laser_beam.impacted = closest_hit.is_some();
+            sprite.size.y = beam_origin.distance(beam_end);
+            transform.translation = ((beam_origin + beam_end) * 0.5).extend(1.);
+            transform.rotation = Quat::from_rotation_z(
+                beam_dir.angle_between(Vec3::Y) * -beam_dir.x.signum(),
+            );
 
             if let Some((_, entity, mut hitable)) = closest_hit {
-                hitable.damage_tick.tick(time.delta_seconds());
+                hitable.damage_tick.tick(time.delta());
                 hit_this_frame.insert(entity);
             }
         } else {
             visible.is_visible = false;
-            laser_beam.0 = false;
+            laser_beam.impacted = false;
         }
     }
 
@@ -283,7 +292,7 @@ pub fn laser_impact(
 ) {
     for (mut transform, mut visible, parent) in impacts.iter_mut() {
         if let Ok((beam, beam_sprite)) = beams.get(parent.0) {
-            visible.is_visible = beam.0;
+            visible.is_visible = beam.impacted;
             transform.translation.y = beam_sprite.size.y * 0.5;
         } else {
             bevy::log::warn!("LaserImapct doesn't have Parent");

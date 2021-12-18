@@ -62,12 +62,12 @@ impl LevelGenerator {
 
         // stars
         for position in CellDistribution::with_rng(&mut chunk_rng, CHUNK_SIZE, 150.) {
-            cmd.spawn(SpriteBundle {
+            cmd.spawn_bundle(SpriteBundle {
                 transform: Transform::from_translation((position + offset).extend(0.)),
                 material: materials.star.clone(),
                 ..Default::default()
             })
-            .with(chunk.clone());
+            .insert(chunk.clone());
         }
 
         // nebulas
@@ -75,7 +75,7 @@ impl LevelGenerator {
             CellDistribution::with_rng(&mut chunk_rng, CHUNK_SIZE, 1000.).collect();
         for position in nebula_positions {
             let rotation = Quat::from_rotation_z((TAU / 4.0) * chunk_rng.gen_range(0..3) as f32);
-            cmd.spawn(SpriteBundle {
+            cmd.spawn_bundle(SpriteBundle {
                 transform: Transform {
                     translation: (position + offset).extend(5.),
                     rotation,
@@ -85,7 +85,7 @@ impl LevelGenerator {
 
                 ..Default::default()
             })
-            .with(chunk.clone());
+            .insert(chunk.clone());
         }
 
         self.generated_chunks.insert(chunk);
@@ -93,7 +93,7 @@ impl LevelGenerator {
 }
 
 pub fn generate_background(
-    cmd: &mut Commands,
+    mut cmd: Commands,
     materials: Res<GameMaterials>,
     mut generator: ResMut<LevelGenerator>,
     explorers: Query<&GlobalTransform, With<ChunkExplorer>>,
@@ -105,7 +105,7 @@ pub fn generate_background(
     }
 
     for chunk in chunk_to_generate.drain() {
-        generator.generate_chunk(chunk, cmd, &materials);
+        generator.generate_chunk(chunk, &mut cmd, &materials);
     }
 }
 
@@ -118,14 +118,14 @@ impl Default for CleanupTimer {
 }
 
 pub fn cleanup_chunks(
-    cmd: &mut Commands,
+    mut cmd: Commands,
     mut timer: Local<CleanupTimer>,
     time: Res<Time>,
     generator: Res<LevelGenerator>,
     chunk_entities: Query<(Entity, &Chunk)>,
     explorers: Query<&GlobalTransform, With<ChunkExplorer>>,
 ) {
-    if timer.0.tick(time.delta_seconds()).just_finished() {
+    if timer.0.tick(time.delta()).just_finished() {
         let chunk_to_cleanup: HashSet<_> = generator
             .generated_chunks
             .iter()
@@ -139,7 +139,7 @@ pub fn cleanup_chunks(
 
         for (entity, chunk) in chunk_entities.iter() {
             if chunk_to_cleanup.contains(chunk) {
-                cmd.despawn(entity);
+                cmd.entity(entity).despawn();
             }
         }
     }

@@ -1,15 +1,15 @@
 use bevy::prelude::*;
 
-use crate::{AppState, APP_STATE_STAGE};
+use crate::AppState;
 
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
     fn build(&self, app: &mut AppBuilder) {
         app.init_resource::<ButtonMaterials>()
-            .on_state_enter(APP_STATE_STAGE, AppState::Menu, enter.system())
-            .on_state_update(APP_STATE_STAGE, AppState::Menu, update.system())
-            .on_state_exit(APP_STATE_STAGE, AppState::Menu, exit.system());
+            .add_system_set(SystemSet::on_enter(AppState::Menu).with_system(enter.system()))
+            .add_system_set(SystemSet::on_update(AppState::Menu).with_system(update.system()))
+            .add_system_set(SystemSet::on_exit(AppState::Menu).with_system(exit.system()));
     }
 }
 
@@ -21,10 +21,11 @@ struct ButtonMaterials {
     play_hover: Handle<ColorMaterial>,
 }
 
-impl FromResources for ButtonMaterials {
-    fn from_resources(resources: &Resources) -> Self {
-        let mut materials = resources.get_mut::<Assets<ColorMaterial>>().unwrap();
-        let asset_server = resources.get_mut::<AssetServer>().unwrap();
+impl FromWorld for ButtonMaterials {
+    fn from_world(world: &mut World) -> Self {
+        let world = world.cell();
+        let mut materials = world.get_resource_mut::<Assets<ColorMaterial>>().unwrap();
+        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
 
         ButtonMaterials {
             play: materials.add(asset_server.load("ui/button.png").into()),
@@ -34,12 +35,12 @@ impl FromResources for ButtonMaterials {
 }
 
 fn enter(
-    commands: &mut Commands,
+    mut commands: Commands,
     button_colors: Res<ButtonMaterials>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     commands
-        .spawn(NodeBundle {
+        .spawn_bundle(NodeBundle {
             style: Style {
                 size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
                 align_items: AlignItems::Center,
@@ -49,10 +50,10 @@ fn enter(
             material: materials.add(Color::NONE.into()),
             ..Default::default()
         })
-        .with(MenuUi)
+        .insert(MenuUi)
         .with_children(|parent| {
             parent
-                .spawn(ButtonBundle {
+                .spawn_bundle(ButtonBundle {
                     style: Style {
                         size: Size::new(Val::Px(400.0), Val::Px(200.0)),
                         justify_content: JustifyContent::Center,
@@ -62,7 +63,7 @@ fn enter(
                     material: button_colors.play.clone(),
                     ..Default::default()
                 })
-                .with(StartGameButton);
+                .insert(StartGameButton);
         });
 }
 
@@ -70,14 +71,14 @@ fn update(
     button_colors: Res<ButtonMaterials>,
     mut interaction_query: Query<
         (&Interaction, &mut Handle<ColorMaterial>),
-        (Mutated<Interaction>, With<StartGameButton>),
+        (Changed<Interaction>, With<StartGameButton>),
     >,
     mut states: ResMut<State<AppState>>,
 ) {
     for (interaction, mut material) in interaction_query.iter_mut() {
         // let mut text = text_query.get_mut(children[0]).unwrap();
         match *interaction {
-            Interaction::Clicked => states.set_next(AppState::InGame).unwrap(),
+            Interaction::Clicked => states.replace(AppState::InGame).unwrap(),
             Interaction::Hovered => {
                 *material = button_colors.play_hover.clone();
             }
@@ -88,8 +89,8 @@ fn update(
     }
 }
 
-fn exit(commands: &mut Commands, query: Query<Entity, With<MenuUi>>) {
+fn exit(mut commands: Commands, query: Query<Entity, With<MenuUi>>) {
     for entity in query.iter() {
-        commands.despawn_recursive(entity);
+        commands.entity(entity).despawn_recursive();
     }
 }

@@ -2,6 +2,8 @@
 
 mod asteroids;
 mod basics;
+mod camera;
+mod hud;
 mod level_generation;
 mod math;
 mod menu;
@@ -11,81 +13,91 @@ use std::f32::consts::TAU;
 
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
+use bevy::render::camera::Camera;
 use bevy::sprite::collide_aabb::collide;
 
 use asteroids::*;
 use basics::*;
-use bevy::render::camera::Camera;
+use camera::*;
+use hud::*;
 use level_generation::*;
 use rand::{random, thread_rng, Rng as _, SeedableRng};
 use weapons::*;
 
 pub const APP_STATE_STAGE: &str = "app_state_stage";
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum AppState {
     Menu,
     InGame,
 }
 
 fn main() {
-    let mut app_state_stage = StateStage::<AppState>::default();
-    app_state_stage
-        .on_state_enter(AppState::InGame, start_game.system())
-        .on_state_update(AppState::InGame, generate_background.system())
-        .on_state_update(AppState::InGame, cleanup_chunks.system())
-        .on_state_update(AppState::InGame, continuous_rotation.system())
-        .on_state_update(AppState::InGame, lifetime.system())
-        .on_state_update(AppState::InGame, maximum_distance_from.system())
-        .on_state_update(AppState::InGame, sprite_animation.system())
-        .on_state_update(AppState::InGame, spawn_asteroids.system())
-        .on_state_update(AppState::InGame, mouse_position.system())
-        .on_state_update(AppState::InGame, ship_movement.system())
-        .on_state_update(AppState::InGame, movement.system())
-        .on_state_update(AppState::InGame, camera_follow.system())
-        .on_state_update(AppState::InGame, weapon_system_switch_weapon.system())
-        .on_state_update(AppState::InGame, weapon_system_fire.system())
-        .on_state_update(AppState::InGame, ship_cannon.system())
-        .on_state_update(AppState::InGame, ship_laser.system())
-        .on_state_update(AppState::InGame, laser_beam_init.system())
-        .on_state_update(AppState::InGame, laser_beam.system())
-        .on_state_update(AppState::InGame, laser_impact.system())
-        .on_state_update(AppState::InGame, bullets_hit_asteroids.system())
-        .on_state_update(AppState::InGame, laser_beams_hit_asteroids.system())
-        .on_state_update(AppState::InGame, asteroid_damage.system())
-        .on_state_update(AppState::InGame, asteroids_hit_ship.system())
-        .on_state_update(AppState::InGame, ship_eats_shards.system())
-        .on_state_update(AppState::InGame, hud.system())
-        .on_state_exit(AppState::InGame, cleanup::<CleanupAfterGame>.system());
-
     App::build()
         .add_plugins(DefaultPlugins)
-        .add_resource(ClearColor(Color::rgb_u8(7, 0, 17)))
+        .insert_resource(ClearColor(Color::rgb_u8(0, 20, 24)))
+        // .add_resource(Msaa { samples: 1 })
         .add_startup_system(setup.system())
-        .add_resource(State::new(AppState::Menu))
-        .add_resource(MouseWorldPos::default())
-        .add_resource(LevelGenerator::new(123))
+        .add_state(AppState::Menu)
+        .insert_resource(MouseWorldPos::default())
+        .insert_resource(LevelGenerator::new(123))
         .init_resource::<GameMaterials>()
-        .add_stage_after(stage::UPDATE, APP_STATE_STAGE, app_state_stage)
+        .init_resource::<UiMaterials>()
         .add_plugin(menu::MenuPlugin)
+        .add_system_set(
+            SystemSet::on_enter(AppState::InGame)
+                .with_system(start_game.system())
+                .with_system(init_hud.system()),
+        )
+        .add_system_set(
+            SystemSet::on_update(AppState::InGame)
+                .with_system(generate_background.system())
+                .with_system(cleanup_chunks.system())
+                .with_system(laser_beam.system())
+                .with_system(continuous_rotation.system())
+                .with_system(lifetime.system())
+                .with_system(maximum_distance_from.system())
+                .with_system(sprite_animation.system())
+                .with_system(spawn_asteroids.system())
+                .with_system(mouse_position.system())
+                .with_system(ship_movement.system())
+                .with_system(movement.system())
+                .with_system(camera::camera_follow.system())
+                .with_system(weapon_system_switch_weapon.system())
+                .with_system(weapon_system_fire.system())
+                .with_system(ship_cannon.system())
+                .with_system(ship_laser.system())
+                .with_system(laser_beam_init.system())
+                .with_system(laser_impact.system())
+                .with_system(bullets_hit_asteroids.system())
+                .with_system(laser_beams_hit_asteroids.system())
+                .with_system(asteroid_damage.system())
+                .with_system(asteroids_hit_ship.system())
+                .with_system(ship_eats_shards.system())
+                .with_system(hud_healthbar.system()),
+        )
+        .add_system_set(
+            SystemSet::on_exit(AppState::InGame).with_system(cleanup::<CleanupAfterGame>.system()),
+        )
         .run();
 }
 
 pub struct GameMaterials {
-    ship: Handle<ColorMaterial>,
+    spaceship2: Handle<TextureAtlas>,
     bullet: Handle<ColorMaterial>,
     asteroid: Handle<TextureAtlas>,
-    health_bar: Handle<ColorMaterial>,
     laser: Handle<ColorMaterial>,
     laser_impact: Handle<TextureAtlas>,
     nebulas: Vec<Handle<ColorMaterial>>,
     star: Handle<ColorMaterial>,
+    // ship: Handle<ColorMaterial>,
 }
 
-impl FromResources for GameMaterials {
-    fn from_resources(resources: &Resources) -> Self {
-        let asset_server = resources.get_mut::<AssetServer>().unwrap();
-        let mut materials = resources.get_mut::<Assets<ColorMaterial>>().unwrap();
-        let mut texture_atlases = resources.get_mut::<Assets<TextureAtlas>>().unwrap();
+impl FromWorld for GameMaterials {
+    fn from_world(world: &mut World) -> Self {
+        let world = world.cell();
+        let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
+        let mut materials = world.get_resource_mut::<Assets<ColorMaterial>>().unwrap();
+        let mut texture_atlases = world.get_resource_mut::<Assets<TextureAtlas>>().unwrap();
 
         let asteroid = asset_server.load("asteroid.png");
         let asteroid = TextureAtlas::from_grid(asteroid, Vec2::new(48.0, 48.0), 4, 1);
@@ -93,25 +105,23 @@ impl FromResources for GameMaterials {
         let laser_impact = asset_server.load("laser_impact.png");
         let laser_impact = TextureAtlas::from_grid(laser_impact, Vec2::new(8.0, 8.0), 4, 1);
 
+        let spaceship2 = asset_server.load("spaceship2.png");
+        let spaceship2 = TextureAtlas::from_grid(spaceship2, Vec2::new(32.0, 32.0), 8, 1);
+
         GameMaterials {
-            ship: materials.add(asset_server.load("spaceship.png").into()),
+            spaceship2: texture_atlases.add(spaceship2.into()),
             bullet: materials.add(asset_server.load("bullet.png").into()),
             asteroid: texture_atlases.add(asteroid.into()),
-            health_bar: materials.add(asset_server.load("ui/health_bar.png").into()),
-            laser: materials.add(Color::RED.into()),
+            laser: materials.add(asset_server.load("laser_beam.png").into()),
             laser_impact: texture_atlases.add(laser_impact.into()),
-            nebulas: vec![
-                materials.add(asset_server.load("nebula1.png").into()),
-                materials.add(asset_server.load("nebula2.png").into()),
-                materials.add(asset_server.load("nebula3.png").into()),
-            ],
+            nebulas: vec![materials.add(asset_server.load("nebula.png").into())],
             star: materials.add(asset_server.load("star.png").into()),
+            // ship: materials.add(asset_server.load("spaceship.png").into()),
         }
     }
 }
 
 pub struct Spaceship {
-    hp: u32,
     score: u32,
 }
 
@@ -132,169 +142,85 @@ pub struct HitableByLaser {
     damage_tick: Timer,
 }
 
-struct Healthbar;
-struct Score;
-
 struct CleanupAfterGame;
 
 pub struct PlayerSpaceship(Entity);
 
-struct MainCamera(Entity);
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    if let Err(e) = asset_server.watch_for_changes() {
+        eprintln!("not able to enable hot-reloading: {}", e);
+    }
 
-fn setup(commands: &mut Commands) {
-    commands.spawn(CameraUiBundle::default());
+    commands.spawn_bundle(UiCameraBundle::default());
 
     let main_camera = commands
-        .spawn(Camera2dBundle::default())
-        .current_entity()
-        .unwrap();
+        .spawn_bundle(OrthographicCameraBundle::new_2d())
+        .id();
+
     commands.insert_resource(MainCamera(main_camera));
 }
 
-fn start_game(
-    commands: &mut Commands,
-    asset_server: Res<AssetServer>,
-    sprites: Res<GameMaterials>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    main_camera: Res<MainCamera>,
-) {
-    let spaceship = commands
-        .spawn(SpriteBundle {
-            material: sprites.ship.clone(),
+fn start_game(mut cmd: Commands, sprites: Res<GameMaterials>) {
+    let spaceship = cmd
+        // .spawn(SpriteBundle {
+        //     material: sprites.ship.clone(),
+        //     ..Default::default()
+        // })
+        .spawn_bundle(SpriteSheetBundle {
+            texture_atlas: sprites.spaceship2.clone(),
             ..Default::default()
         })
-        .with(Spaceship { hp: 100, score: 0 })
-        .with(Velocity::default())
-        .with(CleanupAfterGame)
-        .with(ChunkExplorer)
-        .with(Collider(Vec2::new(16., 48.)))
-        .with(WeaponSystem {
+        .insert(Spaceship { score: 0 })
+        .insert(Hitpoints(100))
+        .insert(Velocity::default())
+        .insert(CleanupAfterGame)
+        .insert(ChunkExplorer)
+        .insert(Collider(Vec2::new(16., 48.)))
+        .insert(WeaponSystem {
             slots: 2,
             current: 0,
             is_firing: false,
         })
         .with_children(|ship| {
-            ship.spawn(WeaponBundle::new(
+            ship.spawn_bundle(WeaponBundle::new(
                 WeaponCannon::default(),
                 0,
                 ship.parent_entity(),
             ));
-            ship.spawn(WeaponBundle::new(
+            ship.spawn_bundle(WeaponBundle::new(
                 WeaponLaser::default(),
                 1,
                 ship.parent_entity(),
             ));
         })
-        .current_entity()
-        .unwrap();
+        .id();
 
-    commands.insert_resource(PlayerSpaceship(spaceship));
+    cmd.insert_resource(PlayerSpaceship(spaceship));
 
-    commands.insert_one(main_camera.0, CameraFollow(spaceship));
-
-    // TEST STATIC ASTERIOD
-    commands
-        .spawn(SpriteSheetBundle {
-            texture_atlas: sprites.asteroid.clone(),
-            transform: Transform::from_translation(Vec3::new(150., 150., 0.)),
-            ..Default::default()
-        })
-        .with(CleanupAfterGame)
-        .with(Asteroid { hits_needed: 3 })
-        .with(HitableByLaser {
-            damage_tick: Timer::from_seconds(1., false),
-        });
-
-    commands
-        .spawn(TextBundle {
-            style: Style {
-                align_self: AlignSelf::FlexStart,
-                position_type: PositionType::Absolute,
-                position: Rect {
-                    top: Val::Px(16.0),
-                    left: Val::Px(16.0),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            text: Text {
-                value: "Score:".to_string(),
-                font: asset_server.load("Freshman.ttf"),
-                style: TextStyle {
-                    font_size: 60.0,
-                    color: Color::rgb_u8(147, 14, 58),
-                    ..Default::default()
-                },
-            },
-            ..Default::default()
-        })
-        .with(Score)
-        .with(CleanupAfterGame)
-        .spawn(NodeBundle {
-            style: Style {
-                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                align_items: AlignItems::FlexEnd,
-                justify_content: JustifyContent::Center,
-                ..Default::default()
-            },
-            material: materials.add(Color::NONE.into()),
-            ..Default::default()
-        })
-        .with(CleanupAfterGame)
-        .with_children(|parent| {
-            parent
-                .spawn(NodeBundle {
-                    style: Style {
-                        size: Size::new(Val::Px(800.0), Val::Px(32.0)),
-                        margin: Rect::all(Val::Px(16.0)),
-                        ..Default::default()
-                    },
-                    material: materials.add(Color::NONE.into()),
-                    ..Default::default()
-                })
-                .with(CleanupAfterGame)
-                .with_children(|parent| {
-                    parent
-                        .spawn(NodeBundle {
-                            style: Style {
-                                position_type: PositionType::Absolute,
-                                position: Rect {
-                                    top: Val::Px(4.0),
-                                    left: Val::Px(4.0),
-                                    ..Default::default()
-                                },
-                                size: Size::new(Val::Px(792.0), Val::Px(24.0)),
-                                ..Default::default()
-                            },
-                            material: materials.add(Color::rgb_u8(147, 14, 58).into()),
-                            // transform: Transform::from_scale(Vec3::new(0.5, 1.0, 1.0)),
-                            ..Default::default()
-                        })
-                        .with(CleanupAfterGame)
-                        .with(Healthbar)
-                        .spawn(NodeBundle {
-                            style: Style {
-                                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-                                ..Default::default()
-                            },
-                            material: sprites.health_bar.clone(),
-                            ..Default::default()
-                        })
-                        .with(CleanupAfterGame);
-                });
-        });
+    // STATIC TEST ASTERIOD
+    // commands
+    //     .spawn(SpriteSheetBundle {
+    //         texture_atlas: sprites.asteroid.clone(),
+    //         transform: Transform::from_translation(Vec3::new(150., 150., 0.)),
+    //         ..Default::default()
+    //     })
+    //     .with(CleanupAfterGame)
+    //     .with(Asteroid)
+    //     .with(Hitpoints(3))
+    //     .with(HitableByLaser {
+    //         damage_tick: Timer::from_seconds(1., false),
+    //     });
 }
 
 fn mouse_position(
     main_camera: Res<MainCamera>,
     windows: Res<Windows>,
     camera_query: Query<&Transform, With<Camera>>,
-    cursor_moved_events: Res<Events<CursorMoved>>,
-    mut cursor_moved_reader: Local<EventReader<CursorMoved>>,
+    mut cursor_moved_reader: EventReader<CursorMoved>,
     mut mouse_world_pos: ResMut<MouseWorldPos>,
     mut last_mouse_event: Local<Option<CursorMoved>>,
 ) {
-    if let Some(last_event) = cursor_moved_reader.latest(&cursor_moved_events) {
+    if let Some(last_event) = cursor_moved_reader.iter().last() {
         *last_mouse_event = Some(last_event.clone());
     }
 
@@ -312,27 +238,33 @@ fn mouse_position(
 const SHIP_SPEED_GAIN: f32 = 1000.0;
 const SHIP_MAX_SPEED: f32 = 500.0;
 
-const ROTATION_CLAMP: f32 = TAU / 8.;
-
 fn ship_movement(
     mouse_input: Res<Input<MouseButton>>,
     keys: Res<Input<KeyCode>>,
-    mut ships: Query<(&mut Transform, &mut Velocity), With<Spaceship>>,
+    mut ships: Query<(&Transform, &mut Velocity, &mut TextureAtlasSprite), With<Spaceship>>,
     time: Res<Time>,
     mouse_pos: Res<MouseWorldPos>,
 ) {
-    for (mut transform, mut velocity) in ships.iter_mut() {
+    for (transform, mut velocity, mut sprite) in ships.iter_mut() {
         let dir_to_target = mouse_pos.dir_from(transform.translation);
 
-        let angle = Vec3::unit_y().angle_between(dir_to_target) * -dir_to_target.x.signum()
-            - (ROTATION_CLAMP * 0.5);
+        let angle = Vec3::Y.angle_between(dir_to_target);
 
-        let angle = ROTATION_CLAMP * (angle / ROTATION_CLAMP).ceil();
+        let angle = if dir_to_target.x.signum() < 0. {
+            TAU - angle
+        } else {
+            angle
+        };
+        let sprite_direction = (8.0 * angle / TAU).round();
 
-        transform.rotation = Quat::from_rotation_z(angle);
+        sprite.index = (8 - sprite_direction as u32) % 8;
 
-        // let x =0.;
-        // let y = 0.;
+        // let angle = ROTATION_CLAMP * (angle / ROTATION_CLAMP).ceil();
+
+        // transform.rotation = Quat::from_rotation_z(
+        //     dir_to_target.angle_between(Vec3::unit_y()) * -dir_to_target.x.signum(),
+        // );
+
         let mut acceleration = Vec3::default();
 
         if mouse_input.pressed(MouseButton::Right) {
@@ -363,19 +295,19 @@ fn ship_movement(
         } else {
             velocity.0 = Vec3::max(
                 velocity.0 - Vec3::splat(SHIP_SPEED_GAIN) * time.delta_seconds(),
-                Vec3::zero(),
+                Vec3::ZERO,
             );
         }
     }
 }
 
 fn asteroids_hit_ship(
-    cmd: &mut Commands,
-    mut ship_query: Query<(&mut Spaceship, &Transform, &Collider)>,
+    mut cmd: Commands,
+    mut ships: Query<(&mut Hitpoints, &Transform, &Collider), With<Spaceship>>,
     mut asteroids: Query<(Entity, &Transform, &Collider, &mut TextureAtlasSprite), With<Asteroid>>,
     mut states: ResMut<State<AppState>>,
 ) {
-    for (mut ship, transform, collider) in ship_query.iter_mut() {
+    for (mut hp, transform, collider) in ships.iter_mut() {
         for (asteroid, asteroid_transform, asteroid_collider, mut sprite) in asteroids.iter_mut() {
             if collide(
                 transform.translation,
@@ -387,13 +319,14 @@ fn asteroids_hit_ship(
             {
                 sprite.index = 3;
 
-                cmd.remove::<(Velocity, Collider)>(asteroid)
-                    .insert_one(asteroid, Lifetime::millis(200));
+                cmd.entity(asteroid)
+                    .remove::<(Velocity, Collider, Hitpoints)>()
+                    .insert(Lifetime::millis(200));
 
-                ship.hp = ship.hp.saturating_sub(10);
+                hp.damage(10);
 
-                if ship.hp == 0 {
-                    states.set_next(AppState::Menu).unwrap();
+                if hp.is_dead() {
+                    states.replace(AppState::Menu).unwrap();
                     return;
                 }
             }
@@ -402,11 +335,11 @@ fn asteroids_hit_ship(
 }
 
 pub fn bullets_hit_asteroids(
-    cmd: &mut Commands,
-    mut asteroids: Query<(&mut Asteroid, &Transform, &Collider)>,
+    mut cmd: Commands,
+    mut asteroids: Query<(&mut Hitpoints, &Transform, &Collider), With<Asteroid>>,
     mut bullets: Query<(&mut Bullet, Entity, &Transform, &Collider)>,
 ) {
-    for (mut asteroid, transform, collider) in asteroids.iter_mut() {
+    for (mut hp, transform, collider) in asteroids.iter_mut() {
         for (mut bullet, bullet_entity, bullet_transform, bullet_collider) in bullets.iter_mut() {
             if !bullet.already_hit
                 && collide(
@@ -418,25 +351,25 @@ pub fn bullets_hit_asteroids(
                 .is_some()
             {
                 bullet.already_hit = true;
-                asteroid.hit();
-                cmd.despawn(bullet_entity);
+                hp.damage(1);
+                cmd.entity(bullet_entity).despawn();
             }
         }
     }
 }
 
-pub fn laser_beams_hit_asteroids(mut asteroids: Query<(&mut Asteroid, &mut HitableByLaser)>) {
-    for (mut asteroid, mut hitable) in asteroids.iter_mut() {
+pub fn laser_beams_hit_asteroids(mut asteroids: Query<(&mut Hitpoints, &mut HitableByLaser)>) {
+    for (mut hp, mut hitable) in asteroids.iter_mut() {
         if hitable.damage_tick.just_finished() {
             hitable.damage_tick.reset();
-            asteroid.hits_needed = asteroid.hits_needed.saturating_sub(1);
+            hp.damage(1);
         }
     }
 }
 
 fn ship_eats_shards(
-    cmd: &mut Commands,
-    mut ships: Query<(&mut Spaceship, &Transform)>,
+    mut cmd: Commands,
+    mut ships: Query<(&mut Spaceship, &Transform), Without<Shard>>,
     mut shards: Query<(Entity, &mut Transform), With<Shard>>,
 ) {
     for (mut ship, ship_transform) in ships.iter_mut() {
@@ -447,38 +380,8 @@ fn ship_eats_shards(
 
             if dist < 400.0 {
                 ship.score += 10;
-                cmd.despawn(entity);
+                cmd.entity(entity).despawn()
             }
-        }
-    }
-}
-
-fn camera_follow(
-    spaceship: Res<PlayerSpaceship>,
-    main_camera: Res<MainCamera>,
-    spaceships: Query<&Transform, With<Spaceship>>,
-    mut cameras: Query<&mut Transform, With<Camera>>,
-) {
-    if let Ok(ship) = spaceships.get(spaceship.0) {
-        let mut camera = cameras.get_mut(main_camera.0).unwrap();
-        camera.translation.x = ship.translation.x;
-        camera.translation.y = ship.translation.y;
-    }
-}
-
-fn hud(
-    ship: Res<PlayerSpaceship>,
-    ships: Query<&Spaceship>,
-    mut healthbar: Query<&mut Style, With<Healthbar>>,
-    mut score: Query<&mut Text, With<Score>>,
-) {
-    if let Ok(ship) = ships.get(ship.0) {
-        for mut style in healthbar.iter_mut() {
-            style.max_size.width = Val::Percent(ship.hp as f32);
-        }
-
-        for mut text in score.iter_mut() {
-            text.value = ship.score.to_string();
         }
     }
 }

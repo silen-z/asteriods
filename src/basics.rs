@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{ecs::component::Component, prelude::*};
 #[derive(Default)]
 pub struct Velocity(pub Vec3);
 
@@ -53,7 +53,17 @@ pub struct MaximumDistanceFrom {
     pub distance: f32,
 }
 
-pub struct CameraFollow(pub Entity);
+pub struct Hitpoints(pub u32);
+
+impl Hitpoints {
+    pub fn damage(&mut self, dmg: u32) {
+        self.0 = self.0.saturating_sub(dmg);
+    }
+
+    pub fn is_dead(&self) -> bool {
+        self.0 == 0
+    }
+}
 
 pub fn movement(time: Res<Time>, mut query: Query<(&Velocity, &mut Transform)>) {
     for (velocity, mut transform) in query.iter_mut() {
@@ -73,57 +83,42 @@ pub fn sprite_animation(
     time: Res<Time>,
 ) {
     for (mut anim, mut sprite) in query.iter_mut() {
-        if anim.timer.tick(time.delta_seconds()).just_finished() {
+        if anim.timer.tick(time.delta()).just_finished() {
             sprite.index = anim.next();
         }
     }
 }
 
 pub fn lifetime(
-    commands: &mut Commands,
+    mut commands: Commands,
     time: Res<Time>,
     mut query: Query<(Entity, &mut Lifetime)>,
 ) {
     for (entity, mut lifetime) in query.iter_mut() {
-        if lifetime.0.tick(time.delta_seconds()).finished() {
-            commands.despawn(entity);
+        if lifetime.0.tick(time.delta()).finished() {
+            commands.entity(entity).despawn();
         }
     }
 }
 
 pub fn maximum_distance_from(
-    cmd: &mut Commands,
+    mut cmd: Commands,
     query: Query<(Entity, &Transform, &MaximumDistanceFrom)>,
     anchors: Query<&Transform>,
 ) {
     for (entity, transform, max_dist) in query.iter() {
         if let Ok(anchor_transform) = anchors.get(max_dist.anchor) {
             if transform.translation.distance(anchor_transform.translation) > max_dist.distance {
-                cmd.despawn(entity);
+                cmd.entity(entity).despawn();
             }
         } else {
-            cmd.despawn(entity);
+            cmd.entity(entity).despawn();
         }
     }
 }
 
-// pub fn camera_follow(
-//     cmds: &mut Commands,
-//     mut cameras: Query<(&CameraFollow, &mut Transform)>,
-//     entities: Query<&Transform, Without<CameraFollow>>,
-// ) {
-//     for (camera_follow, mut camera) in cameras.iter_mut() {
-//         if let Ok(followed) = entities.get(camera_follow.0) {
-//             camera.translation.x = followed.translation.x;
-//             camera.translation.y = followed.translation.y;
-//         } else {
-//             cmds.remove_one::<CameraFollow>(camera_follow.0);
-//         }
-//     }
-// }
-
-pub fn cleanup<C: Component>(cmd: &mut Commands, query: Query<Entity, With<C>>) {
+pub fn cleanup<C: Component>(mut cmd: Commands, query: Query<Entity, With<C>>) {
     for entity in query.iter() {
-        cmd.despawn(entity);
+        cmd.entity(entity).despawn();
     }
 }

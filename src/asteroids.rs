@@ -1,20 +1,12 @@
 use super::*;
 use bevy::prelude::*;
 
-pub struct Asteroid {
-    pub hits_needed: u8,
-}
-
-impl Asteroid {
-    pub fn hit(&mut self) {
-        self.hits_needed = self.hits_needed.saturating_sub(1);
-    }
-}
+pub struct Asteroid;
 
 pub struct Shard;
 
 pub fn spawn_asteroids(
-    commands: &mut Commands,
+    mut commands: Commands,
     ship: Res<PlayerSpaceship>,
     ships: Query<(Entity, &Transform)>,
     asteroids: Query<(), With<Asteroid>>,
@@ -31,20 +23,21 @@ pub fn spawn_asteroids(
             let rot = thread_rng().gen_range(-1.5..1.5);
 
             commands
-                .spawn(SpriteSheetBundle {
+                .spawn_bundle(SpriteSheetBundle {
                     texture_atlas: materials.asteroid.clone(),
                     transform: Transform::from_translation(position),
                     ..Default::default()
                 })
-                .with(CleanupAfterGame)
-                .with(Asteroid { hits_needed: 3 })
-                .with(Velocity::from(direction))
-                .with(Rotation::from(rot))
-                .with(Collider(Vec2::new(16., 16.)))
-                .with(HitableByLaser {
+                .insert(CleanupAfterGame)
+                .insert(Asteroid)
+                .insert(Hitpoints(3))
+                .insert(Velocity::from(direction))
+                // .with(Rotation::from(rot))
+                .insert(Collider(Vec2::new(16., 16.)))
+                .insert(HitableByLaser {
                     damage_tick: Timer::from_seconds(0.15, false),
                 })
-                .with(MaximumDistanceFrom {
+                .insert(MaximumDistanceFrom {
                     anchor: entity,
                     distance: 1200.0,
                 });
@@ -53,19 +46,20 @@ pub fn spawn_asteroids(
 }
 
 pub fn asteroid_damage(
-    cmd: &mut Commands,
+    mut cmd: Commands,
     mut asteroids: Query<
-        (Entity, &Asteroid, &mut TextureAtlasSprite, &Transform),
-        Without<Lifetime>, // this makes sure asteroid is not already destoyed
+        (Entity, &Hitpoints, &mut TextureAtlasSprite, &Transform),
+        With<Asteroid>, // this makes sure asteroid is not already destoyed
     >,
     materials: Res<GameMaterials>,
 ) {
-    for (entity, asteroid, mut sprite, transform) in asteroids.iter_mut() {
-        sprite.index = 3 - asteroid.hits_needed as u32;
+    for (entity, hp, mut sprite, transform) in asteroids.iter_mut() {
+        sprite.index = 3 - hp.0;
 
-        if asteroid.hits_needed == 0 {
-            cmd.remove::<(Velocity, Collider, HitableByLaser)>(entity)
-                .insert_one(entity, Lifetime::millis(200));
+        if hp.is_dead() {
+            cmd.entity(entity)
+                .remove::<(Velocity, Collider, HitableByLaser, Hitpoints)>()
+                .insert(Lifetime::millis(200));
 
             for i in 1..=5 {
                 let dir = (TAU / 5.0) * i as f32;
@@ -73,7 +67,7 @@ pub fn asteroid_damage(
 
                 let rotation = Quat::from_rotation_z(random::<f32>() * TAU);
 
-                cmd.spawn(SpriteSheetBundle {
+                cmd.spawn_bundle(SpriteSheetBundle {
                     texture_atlas: materials.asteroid.clone(),
                     transform: Transform {
                         translation: (transform.translation + dir * Vec3::new(10.0, 0., 0.))
@@ -83,10 +77,10 @@ pub fn asteroid_damage(
                     },
                     ..Default::default()
                 })
-                .with(CleanupAfterGame)
-                .with(Shard)
-                .with(Velocity::from(dir * Vec3::unit_x() * 15.0))
-                .with(Lifetime::seconds(2));
+                .insert(CleanupAfterGame)
+                .insert(Shard)
+                .insert(Velocity::from(dir * Vec3::Y * 15.0))
+                .insert(Lifetime::seconds(2));
             }
         }
     }
