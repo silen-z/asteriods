@@ -1,6 +1,7 @@
 use super::*;
 use bevy::{ecs::component::Component, prelude::*, utils::HashSet};
 
+#[derive(Component)]
 pub struct WeaponSystem {
     pub current: usize,
     pub slots: usize,
@@ -31,6 +32,7 @@ impl WeaponSystem {
     }
 }
 
+#[derive(Component)]
 pub struct WeaponSlot {
     pub system: Entity,
     pub slot: usize,
@@ -55,6 +57,7 @@ impl<W: Component> WeaponBundle<W> {
     }
 }
 
+#[derive(Component)]
 pub struct WeaponCannon(Timer);
 
 impl Default for WeaponCannon {
@@ -62,11 +65,12 @@ impl Default for WeaponCannon {
         WeaponCannon(Timer::from_seconds(0.150, false))
     }
 }
-#[derive(Default)]
+#[derive(Component, Default)]
 pub struct Bullet {
     pub already_hit: bool,
 }
 
+#[derive(Component)]
 pub enum WeaponLaser {
     Idle,
     Firing(Vec3),
@@ -78,11 +82,13 @@ impl Default for WeaponLaser {
     }
 }
 
+#[derive(Component)]
 pub struct LaserBeam {
     origin: Entity,
     impacted: bool,
 }
 
+#[derive(Component)]
 pub struct LaserImpact;
 
 pub fn weapon_system_switch_weapon(
@@ -136,7 +142,7 @@ pub fn ship_cannon(
             cannon.0.reset();
             commands
                 .spawn_bundle(SpriteBundle {
-                    material: materials.bullet.clone(),
+                texture: materials.bullet.clone().into(),
                     transform: Transform {
                         translation: transform.translation,
                         rotation: Quat::from_rotation_z(angle),
@@ -179,13 +185,12 @@ pub fn laser_beam_init(
     for entity in added_laser_weapons.iter() {
         commands
             .spawn_bundle(SpriteBundle {
-                material: sprites.laser.clone(),
+                texture: sprites.laser.clone().into(),
                 sprite: Sprite {
-                    size: Vec2::new(2., 1.),
-                    resize_mode: SpriteResizeMode::Manual,
+                    custom_size: Some(Vec2::new(2., 1.)),
                     ..Default::default()
                 },
-                visible: Visible {
+                visibility: Visibility {
                     is_visible: false,
                     ..Default::default()
                 },
@@ -218,7 +223,7 @@ pub fn laser_beam(
         Entity,
         &mut LaserBeam,
         &mut Sprite,
-        &mut Visible,
+        &mut Visibility,
         &mut Transform,
     )>,
     mut hit_this_frame: Local<HashSet<Entity>>,
@@ -227,7 +232,7 @@ pub fn laser_beam(
 
     hit_this_frame.clear();
 
-    for (entity, mut laser_beam, mut sprite, mut visible, mut transform) in laser_beams.iter_mut() {
+    for (entity, mut laser_beam, sprite, mut visible, mut transform) in laser_beams.iter_mut() {
         let (weapon, weapon_transform) = match weapons.get_mut(laser_beam.origin) {
             Ok(e) => e,
             _ => {
@@ -263,7 +268,7 @@ pub fn laser_beam(
 
             visible.is_visible = true;
             laser_beam.impacted = closest_hit.is_some();
-            sprite.size.y = beam_origin.distance(beam_end);
+            sprite.custom_size.unwrap().y = beam_origin.distance(beam_end);
             transform.translation = ((beam_origin + beam_end) * 0.5).extend(1.);
             transform.rotation = Quat::from_rotation_z(
                 beam_dir.angle_between(Vec3::Y) * -beam_dir.x.signum(),
@@ -287,13 +292,13 @@ pub fn laser_beam(
 }
 
 pub fn laser_impact(
-    mut impacts: Query<(&mut Transform, &mut Visible, &Parent), With<LaserImpact>>,
+    mut impacts: Query<(&mut Transform, &mut Visibility, &Parent), With<LaserImpact>>,
     beams: Query<(&LaserBeam, &Sprite)>,
 ) {
     for (mut transform, mut visible, parent) in impacts.iter_mut() {
         if let Ok((beam, beam_sprite)) = beams.get(parent.0) {
             visible.is_visible = beam.impacted;
-            transform.translation.y = beam_sprite.size.y * 0.5;
+            transform.translation.y = beam_sprite.custom_size.unwrap().y * 0.5;
         } else {
             bevy::log::warn!("LaserImapct doesn't have Parent");
         }

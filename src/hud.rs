@@ -1,7 +1,10 @@
 use super::*;
 use bevy::prelude::*;
 
+#[derive(Component)]
 pub struct Healthbar;
+
+#[derive(Component)]
 pub struct Score;
 
 pub struct UiMaterials {
@@ -9,7 +12,7 @@ pub struct UiMaterials {
     transparent: Handle<ColorMaterial>,
     health_bar: Handle<ColorMaterial>,
     health_color: Handle<ColorMaterial>,
-    score_panel: Handle<ColorMaterial>,
+    score_panel: Handle<Image>,
 }
 
 impl FromWorld for UiMaterials {
@@ -23,7 +26,7 @@ impl FromWorld for UiMaterials {
             transparent: materials.add(Color::NONE.into()),
             health_bar: materials.add(asset_server.load("ui/health_bar.png").into()),
             health_color: materials.add(Color::rgb_u8(147, 14, 58).into()),
-            score_panel: materials.add(asset_server.load("ui/score_panel.png").into()),
+            score_panel: asset_server.load("ui/score_panel.png").into(),
         }
     }
 }
@@ -36,7 +39,7 @@ pub fn init_hud(mut cmd: Commands, materials: Res<UiMaterials>) {
             justify_content: JustifyContent::Center,
             ..Default::default()
         },
-        material: materials.transparent.clone(),
+        color: Color::NONE.into(),
         ..Default::default()
     })
     .with_children(|parent| {
@@ -48,7 +51,7 @@ pub fn init_hud(mut cmd: Commands, materials: Res<UiMaterials>) {
                     justify_content: JustifyContent::Center,
                     ..Default::default()
                 },
-                material: materials.score_panel.clone(),
+                image: materials.score_panel.clone().into(),
                 ..Default::default()
             })
             .with_children(|parent| {

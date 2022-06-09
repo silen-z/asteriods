@@ -1,5 +1,6 @@
 use bevy::{ecs::component::Component, prelude::*};
-#[derive(Default)]
+
+#[derive(Component, Default)]
 pub struct Velocity(pub Vec3);
 
 impl From<Vec3> for Velocity {
@@ -8,6 +9,7 @@ impl From<Vec3> for Velocity {
     }
 }
 
+#[derive(Component)]
 pub struct Rotation(f32);
 
 impl From<f32> for Rotation {
@@ -15,14 +17,16 @@ impl From<f32> for Rotation {
         Self(v)
     }
 }
+
+#[derive(Component)]
 pub struct SpriteAnimation {
     timer: Timer,
-    current: u32,
-    frames: u32,
+    current: usize,
+    frames: usize,
 }
 
 impl SpriteAnimation {
-    pub fn new(millis: u32, frames: u32) -> Self {
+    pub fn new(millis: usize, frames: usize) -> Self {
         SpriteAnimation {
             timer: Timer::from_seconds(millis as f32 / 1000., true),
             current: 0,
@@ -30,12 +34,13 @@ impl SpriteAnimation {
         }
     }
 
-    fn next(&mut self) -> u32 {
+    fn next(&mut self) -> usize {
         self.current = (self.current + 1) % self.frames;
         self.current
     }
 }
 
+#[derive(Component)]
 pub struct Lifetime(Timer);
 
 impl Lifetime {
@@ -48,11 +53,13 @@ impl Lifetime {
     }
 }
 
+#[derive(Component)]
 pub struct MaximumDistanceFrom {
     pub anchor: Entity,
     pub distance: f32,
 }
 
+#[derive(Component)]
 pub struct Hitpoints(pub u32);
 
 impl Hitpoints {

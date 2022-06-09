@@ -1,8 +1,10 @@
 use super::*;
 use bevy::prelude::*;
 
+#[derive(Component)]
 pub struct Asteroid;
 
+#[derive(Component)]
 pub struct Shard;
 
 pub fn spawn_asteroids(
@@ -54,11 +56,11 @@ pub fn asteroid_damage(
     materials: Res<GameMaterials>,
 ) {
     for (entity, hp, mut sprite, transform) in asteroids.iter_mut() {
-        sprite.index = 3 - hp.0;
+        sprite.index = 3 - hp.0 as usize;
 
         if hp.is_dead() {
             cmd.entity(entity)
-                .remove::<(Velocity, Collider, HitableByLaser, Hitpoints)>()
+                .remove_bundle::<(Velocity, Collider, HitableByLaser, Hitpoints)>()
                 .insert(Lifetime::millis(200));
 
             for i in 1..=5 {

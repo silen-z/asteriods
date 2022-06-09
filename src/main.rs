@@ -1,5 +1,3 @@
-#![feature(total_cmp)]
-
 mod asteroids;
 mod basics;
 mod camera;
@@ -32,11 +30,11 @@ pub enum AppState {
 }
 
 fn main() {
-    App::build()
+    App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::rgb_u8(0, 20, 24)))
         // .add_resource(Msaa { samples: 1 })
-        .add_startup_system(setup.system())
+        .add_startup_system(setup)
         .add_state(AppState::Menu)
         .insert_resource(MouseWorldPos::default())
         .insert_resource(LevelGenerator::new(123))
@@ -45,50 +43,50 @@ fn main() {
         .add_plugin(menu::MenuPlugin)
         .add_system_set(
             SystemSet::on_enter(AppState::InGame)
-                .with_system(start_game.system())
-                .with_system(init_hud.system()),
+                .with_system(start_game)
+                .with_system(init_hud),
         )
         .add_system_set(
             SystemSet::on_update(AppState::InGame)
-                .with_system(generate_background.system())
-                .with_system(cleanup_chunks.system())
-                .with_system(laser_beam.system())
-                .with_system(continuous_rotation.system())
-                .with_system(lifetime.system())
-                .with_system(maximum_distance_from.system())
-                .with_system(sprite_animation.system())
-                .with_system(spawn_asteroids.system())
-                .with_system(mouse_position.system())
-                .with_system(ship_movement.system())
-                .with_system(movement.system())
-                .with_system(camera::camera_follow.system())
-                .with_system(weapon_system_switch_weapon.system())
-                .with_system(weapon_system_fire.system())
-                .with_system(ship_cannon.system())
-                .with_system(ship_laser.system())
-                .with_system(laser_beam_init.system())
-                .with_system(laser_impact.system())
-                .with_system(bullets_hit_asteroids.system())
-                .with_system(laser_beams_hit_asteroids.system())
-                .with_system(asteroid_damage.system())
-                .with_system(asteroids_hit_ship.system())
-                .with_system(ship_eats_shards.system())
-                .with_system(hud_healthbar.system()),
+                .with_system(generate_background)
+                .with_system(cleanup_chunks)
+                .with_system(laser_beam)
+                .with_system(continuous_rotation)
+                .with_system(lifetime)
+                .with_system(maximum_distance_from)
+                .with_system(sprite_animation)
+                .with_system(spawn_asteroids)
+                .with_system(mouse_position)
+                .with_system(ship_movement)
+                .with_system(movement)
+                .with_system(camera::camera_follow)
+                .with_system(weapon_system_switch_weapon)
+                .with_system(weapon_system_fire)
+                .with_system(ship_cannon)
+                .with_system(ship_laser)
+                .with_system(laser_beam_init)
+                .with_system(laser_impact)
+                .with_system(bullets_hit_asteroids)
+                .with_system(laser_beams_hit_asteroids)
+                .with_system(asteroid_damage)
+                .with_system(asteroids_hit_ship)
+                .with_system(ship_eats_shards)
+                .with_system(hud_healthbar),
         )
         .add_system_set(
-            SystemSet::on_exit(AppState::InGame).with_system(cleanup::<CleanupAfterGame>.system()),
+            SystemSet::on_exit(AppState::InGame).with_system(cleanup::<CleanupAfterGame>),
         )
         .run();
 }
 
 pub struct GameMaterials {
     spaceship2: Handle<TextureAtlas>,
-    bullet: Handle<ColorMaterial>,
+    bullet: Handle<Image>,
     asteroid: Handle<TextureAtlas>,
-    laser: Handle<ColorMaterial>,
+    laser: Handle<Image>,
     laser_impact: Handle<TextureAtlas>,
-    nebulas: Vec<Handle<ColorMaterial>>,
-    star: Handle<ColorMaterial>,
+    nebulas: Vec<Handle<Image>>,
+    star: Handle<Image>,
     // ship: Handle<ColorMaterial>,
 }
 
@@ -96,7 +94,6 @@ impl FromWorld for GameMaterials {
     fn from_world(world: &mut World) -> Self {
         let world = world.cell();
         let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
-        let mut materials = world.get_resource_mut::<Assets<ColorMaterial>>().unwrap();
         let mut texture_atlases = world.get_resource_mut::<Assets<TextureAtlas>>().unwrap();
 
         let asteroid = asset_server.load("asteroid.png");
@@ -110,17 +107,18 @@ impl FromWorld for GameMaterials {
 
         GameMaterials {
             spaceship2: texture_atlases.add(spaceship2.into()),
-            bullet: materials.add(asset_server.load("bullet.png").into()),
+            bullet: asset_server.load("bullet.png"),
             asteroid: texture_atlases.add(asteroid.into()),
-            laser: materials.add(asset_server.load("laser_beam.png").into()),
+            laser: asset_server.load("laser_beam.png"),
             laser_impact: texture_atlases.add(laser_impact.into()),
-            nebulas: vec![materials.add(asset_server.load("nebula.png").into())],
-            star: materials.add(asset_server.load("star.png").into()),
+            nebulas: vec![asset_server.load("nebula.png")],
+            star: asset_server.load("star.png"),
             // ship: materials.add(asset_server.load("spaceship.png").into()),
         }
     }
 }
 
+#[derive(Component)]
 pub struct Spaceship {
     score: u32,
 }
@@ -136,14 +134,18 @@ impl MouseWorldPos {
     }
 }
 
+#[derive(Component)]
 pub struct Collider(Vec2);
 
+#[derive(Component)]
 pub struct HitableByLaser {
     damage_tick: Timer,
 }
 
+#[derive(Component)]
 struct CleanupAfterGame;
 
+#[derive(Component)]
 pub struct PlayerSpaceship(Entity);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -257,7 +259,7 @@ fn ship_movement(
         };
         let sprite_direction = (8.0 * angle / TAU).round();
 
-        sprite.index = (8 - sprite_direction as u32) % 8;
+        sprite.index = (8 - sprite_direction as usize) % 8;
 
         // let angle = ROTATION_CLAMP * (angle / ROTATION_CLAMP).ceil();
 
@@ -320,7 +322,7 @@ fn asteroids_hit_ship(
                 sprite.index = 3;
 
                 cmd.entity(asteroid)
-                    .remove::<(Velocity, Collider, Hitpoints)>()
+                    .remove_bundle::<(Velocity, Collider, Hitpoints)>()
                     .insert(Lifetime::millis(200));
 
                 hp.damage(10);

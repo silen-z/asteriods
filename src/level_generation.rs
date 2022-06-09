@@ -12,7 +12,7 @@ pub struct LevelGenerator {
     generated_chunks: HashSet<Chunk>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Component, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Chunk(i32, i32);
 
 impl Chunk {
@@ -20,7 +20,7 @@ impl Chunk {
         let x = (pos.x / CHUNK_SIZE) as i32;
         let y = (pos.y / CHUNK_SIZE) as i32;
 
-        std::array::IntoIter::new([
+        [
             Chunk(x, y),
             Chunk(x - 1, y + 1),
             Chunk(x, y + 1),
@@ -30,7 +30,8 @@ impl Chunk {
             Chunk(x, y - 1),
             Chunk(x - 1, y - 1),
             Chunk(x - 1, y),
-        ])
+        ]
+        .into_iter()
     }
 
     fn seed(&self) -> u64 {
@@ -64,7 +65,7 @@ impl LevelGenerator {
         for position in CellDistribution::with_rng(&mut chunk_rng, CHUNK_SIZE, 150.) {
             cmd.spawn_bundle(SpriteBundle {
                 transform: Transform::from_translation((position + offset).extend(0.)),
-                material: materials.star.clone(),
+                texture: materials.star.clone().into(),
                 ..Default::default()
             })
             .insert(chunk.clone());
@@ -75,13 +76,16 @@ impl LevelGenerator {
             CellDistribution::with_rng(&mut chunk_rng, CHUNK_SIZE, 1000.).collect();
         for position in nebula_positions {
             let rotation = Quat::from_rotation_z((TAU / 4.0) * chunk_rng.gen_range(0..3) as f32);
+
+            let nebula = materials.nebulas.choose(&mut chunk_rng).cloned().unwrap();
+
             cmd.spawn_bundle(SpriteBundle {
                 transform: Transform {
                     translation: (position + offset).extend(5.),
                     rotation,
                     scale: Vec3::splat(4.0),
                 },
-                material: materials.nebulas.choose(&mut chunk_rng).unwrap().clone(),
+                texture: nebula.into(),
 
                 ..Default::default()
             })
@@ -145,6 +149,7 @@ pub fn cleanup_chunks(
     }
 }
 
+#[derive(Component)]
 pub struct ChunkExplorer;
 
 pub struct CellDistribution<'r, R> {

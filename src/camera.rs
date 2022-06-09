@@ -3,6 +3,7 @@ use bevy::render::camera::Camera;
 
 use crate::PlayerSpaceship;
 
+#[derive(Component)]
 pub struct MainCamera(pub Entity);
 
 pub fn camera_follow(
