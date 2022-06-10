@@ -20,8 +20,8 @@ impl FromWorld for UiMaterials {
 
         UiMaterials {
             font: asset_server.load("ui/AGENCYB.ttf"),
-            health_bar: asset_server.load("ui/health_bar.png").into(),
-            score_panel: asset_server.load("ui/score_panel.png").into(),
+            health_bar: asset_server.load("ui/health_bar.png"),
+            score_panel: asset_server.load("ui/score_panel.png"),
         }
     }
 }
@@ -56,10 +56,9 @@ pub fn init_hud(mut cmd: Commands, materials: Res<UiMaterials>) {
                         text: Text::with_section(
                             "0",
                             TextStyle {
-                                font: materials.font.clone().into(),
+                                font: materials.font.clone(),
                                 font_size: 28.0,
-                                color: Color::rgb_u8(0, 0, 0),
-                                ..default()
+                                color: Color::rgb_u8(0, 0, 0)
                             },
                             TextAlignment::default(),
                         ),
@@ -72,10 +71,9 @@ pub fn init_hud(mut cmd: Commands, materials: Res<UiMaterials>) {
                                 text: Text::with_section(
                                     "0",
                                     TextStyle {
-                                        font: materials.font.clone().into(),
+                                        font: materials.font.clone(),
                                         font_size: 28.0,
-                                        color: Color::rgb_u8(147, 14, 58),
-                                        ..default()
+                                        color: Color::rgb_u8(147, 14, 58)                                    
                                     },
                                     TextAlignment::default(),
                                 ),

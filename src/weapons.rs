@@ -132,7 +132,7 @@ pub fn ship_cannon(
 
         let is_firing = weapon_systems
             .get(weapon_slot.system)
-            .map_or(false, |system| system.is_firing(&weapon_slot));
+            .map_or(false, |system| system.is_firing(weapon_slot));
 
         if is_firing && cannon.0.finished() {
             let shot_direction = mouse_pos.dir_from(transform.translation);
@@ -142,7 +142,7 @@ pub fn ship_cannon(
             cannon.0.reset();
             commands
                 .spawn_bundle(SpriteBundle {
-                    texture: materials.bullet.clone().into(),
+                    texture: materials.bullet.clone(),
                     transform: Transform {
                         translation: transform.translation,
                         rotation: Quat::from_rotation_z(angle),
@@ -167,7 +167,7 @@ pub fn ship_laser(
     for (mut laser, weapon_slot, transform) in lasers.iter_mut() {
         let is_firing = weapon_systems
             .get(weapon_slot.system)
-            .map_or(false, |system| system.is_firing(&weapon_slot));
+            .map_or(false, |system| system.is_firing(weapon_slot));
 
         if is_firing {
             *laser = WeaponLaser::Firing(mouse_pos.dir_from(transform.translation));
@@ -185,16 +185,13 @@ pub fn laser_beam_init(
     for entity in added_laser_weapons.iter() {
         commands
             .spawn_bundle(SpriteBundle {
-                texture: sprites.laser.clone().into(),
+                texture: sprites.laser.clone(),
                 sprite: Sprite {
                     custom_size: Some(Vec2::new(2., 1.)),
                     anchor: Anchor::BottomCenter,
                     ..default()
                 },
-                visibility: Visibility {
-                    is_visible: false,
-                    ..default()
-                },
+                visibility: Visibility { is_visible: false },
                 ..default()
             })
             .insert(LaserBeam {

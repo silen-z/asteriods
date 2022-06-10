@@ -110,11 +110,11 @@ impl FromWorld for GameMaterials {
         let spaceship2 = TextureAtlas::from_grid(spaceship2, Vec2::new(32.0, 32.0), 8, 1);
 
         GameMaterials {
-            spaceship2: texture_atlases.add(spaceship2.into()),
+            spaceship2: texture_atlases.add(spaceship2),
             bullet: asset_server.load("bullet.png"),
-            asteroid: texture_atlases.add(asteroid.into()),
+            asteroid: texture_atlases.add(asteroid),
             laser: asset_server.load("laser_beam.png"),
-            laser_impact: texture_atlases.add(laser_impact.into()),
+            laser_impact: texture_atlases.add(laser_impact),
             nebulas: vec![asset_server.load("nebula.png")],
             star: asset_server.load("star.png"),
             // ship: materials.add(asset_server.load("spaceship.png").into()),

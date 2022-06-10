@@ -30,8 +30,8 @@ impl FromWorld for ButtonMaterials {
         let asset_server = world.get_resource_mut::<AssetServer>().unwrap();
 
         ButtonMaterials {
-            play: asset_server.load("ui/button.png").into(),
-            play_hover: asset_server.load("ui/button_outline.png").into(),
+            play: asset_server.load("ui/button.png"),
+            play_hover: asset_server.load("ui/button_outline.png"),
         }
     }
 }

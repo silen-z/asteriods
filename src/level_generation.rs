@@ -65,7 +65,7 @@ impl LevelGenerator {
         for position in CellDistribution::with_rng(&mut chunk_rng, CHUNK_SIZE, 150.) {
             cmd.spawn_bundle(SpriteBundle {
                 transform: Transform::from_translation((position + offset).extend(0.)),
-                texture: materials.star.clone().into(),
+                texture: materials.star.clone(),
                 ..default()
             })
             .insert(chunk.clone());
@@ -85,7 +85,7 @@ impl LevelGenerator {
                     rotation,
                     scale: Vec3::splat(4.0),
                 },
-                texture: nebula.into(),
+                texture: nebula,
 
                 ..default()
             })
