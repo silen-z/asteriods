@@ -6,6 +6,7 @@ mod level_generation;
 mod math;
 mod menu;
 mod weapons;
+mod magnet;
 
 use std::f32::consts::TAU;
 
@@ -19,6 +20,7 @@ use basics::*;
 use camera::*;
 use hud::*;
 use level_generation::*;
+use magnet::{magnets, Magnet};
 use rand::{random, thread_rng, Rng as _, SeedableRng};
 use weapons::*;
 
@@ -72,6 +74,7 @@ fn main() {
                 .with_system(asteroids_hit_ship)
                 .with_system(ship_eats_shards)
                 .with_system(hud_healthbar)
+                .with_system(magnets)
                 // .with_system(update_score),
         )
         .add_system_set(
@@ -183,6 +186,7 @@ fn start_game(mut cmd: Commands, sprites: Res<GameMaterials>) {
             current: 0,
             is_firing: false,
         })
+        .insert(Magnet {force: 250., max_distance: 150. })
         .with_children(|ship| {
             ship.spawn_bundle(WeaponBundle::new(
                 WeaponCannon::default(),

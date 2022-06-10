@@ -1,3 +1,5 @@
+use crate::magnet::MagnetAttractable;
+
 use super::*;
 use bevy::prelude::*;
 
@@ -82,7 +84,9 @@ pub fn asteroid_damage(
                 .insert(CleanupAfterGame)
                 .insert(Shard)
                 .insert(Velocity::from(dir * Vec3::Y * 15.0))
-                .insert(Lifetime::seconds(2));
+                .insert(Lifetime::seconds(2))
+                .insert(MagnetAttractable);
+
             }
         }
     }

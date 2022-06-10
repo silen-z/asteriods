@@ -1,4 +1,4 @@
-use bevy::{ecs::component::Component, prelude::*};
+use bevy::prelude::*;
 
 #[derive(Component, Default)]
 pub struct Velocity(pub Vec3);
@@ -41,15 +41,24 @@ impl SpriteAnimation {
 }
 
 #[derive(Component)]
-pub struct Lifetime(Timer);
+pub struct Lifetime {
+    life_left: Timer,
+    pub prevent_tick: bool,
+}
 
 impl Lifetime {
     pub fn millis(millis: u32) -> Self {
-        Self(Timer::from_seconds(millis as f32 / 1000., false))
+        Self {
+            life_left: Timer::from_seconds(millis as f32 / 1000., false),
+            prevent_tick: false,
+        }
     }
 
     pub fn seconds(seconds: u32) -> Self {
-        Self(Timer::from_seconds(seconds as f32, false))
+        Self {
+            life_left: Timer::from_seconds(seconds as f32, false),
+            prevent_tick: false,
+        }
     }
 }
 
@@ -102,7 +111,11 @@ pub fn lifetime(
     mut query: Query<(Entity, &mut Lifetime)>,
 ) {
     for (entity, mut lifetime) in query.iter_mut() {
-        if lifetime.0.tick(time.delta()).finished() {
+        if lifetime.prevent_tick {
+            lifetime.prevent_tick = false;
+            continue;
+        }
+        if lifetime.life_left.tick(time.delta()).finished() {
             commands.entity(entity).despawn();
         }
     }
