@@ -71,7 +71,8 @@ fn main() {
                 .with_system(asteroid_damage)
                 .with_system(asteroids_hit_ship)
                 .with_system(ship_eats_shards)
-                .with_system(hud_healthbar),
+                .with_system(hud_healthbar)
+                // .with_system(update_score),
         )
         .add_system_set(
             SystemSet::on_exit(AppState::InGame).with_system(cleanup::<CleanupAfterGame>),
@@ -145,7 +146,6 @@ pub struct HitableByLaser {
 #[derive(Component)]
 struct CleanupAfterGame;
 
-#[derive(Component)]
 pub struct PlayerSpaceship(Entity);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
@@ -166,11 +166,11 @@ fn start_game(mut cmd: Commands, sprites: Res<GameMaterials>) {
     let spaceship = cmd
         // .spawn(SpriteBundle {
         //     material: sprites.ship.clone(),
-        //     ..Default::default()
+        //     ..default()
         // })
         .spawn_bundle(SpriteSheetBundle {
             texture_atlas: sprites.spaceship2.clone(),
-            ..Default::default()
+            ..default()
         })
         .insert(Spaceship { score: 0 })
         .insert(Hitpoints(100))
@@ -204,7 +204,7 @@ fn start_game(mut cmd: Commands, sprites: Res<GameMaterials>) {
     //     .spawn(SpriteSheetBundle {
     //         texture_atlas: sprites.asteroid.clone(),
     //         transform: Transform::from_translation(Vec3::new(150., 150., 0.)),
-    //         ..Default::default()
+    //         ..default()
     //     })
     //     .with(CleanupAfterGame)
     //     .with(Asteroid)

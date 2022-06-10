@@ -66,7 +66,7 @@ impl LevelGenerator {
             cmd.spawn_bundle(SpriteBundle {
                 transform: Transform::from_translation((position + offset).extend(0.)),
                 texture: materials.star.clone().into(),
-                ..Default::default()
+                ..default()
             })
             .insert(chunk.clone());
         }
@@ -87,7 +87,7 @@ impl LevelGenerator {
                 },
                 texture: nebula.into(),
 
-                ..Default::default()
+                ..default()
             })
             .insert(chunk.clone());
         }

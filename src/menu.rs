@@ -44,10 +44,10 @@ fn enter(mut commands: Commands, button_colors: Res<ButtonMaterials>) {
                 size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
-                ..Default::default()
+                ..default()
             },
             color: Color::NONE.into(),
-            ..Default::default()
+            ..default()
         })
         .insert(MenuUi)
         .with_children(|parent| {

@@ -22,13 +22,13 @@ pub fn spawn_asteroids(
 
             position.z += 0.5;
 
-            let rot = thread_rng().gen_range(-1.5..1.5);
+            let _rot = thread_rng().gen_range(-1.5..1.5);
 
             commands
                 .spawn_bundle(SpriteSheetBundle {
                     texture_atlas: materials.asteroid.clone(),
                     transform: Transform::from_translation(position),
-                    ..Default::default()
+                    ..default()
                 })
                 .insert(CleanupAfterGame)
                 .insert(Asteroid)
@@ -37,7 +37,7 @@ pub fn spawn_asteroids(
                 // .with(Rotation::from(rot))
                 .insert(Collider(Vec2::new(16., 16.)))
                 .insert(HitableByLaser {
-                    damage_tick: Timer::from_seconds(0.15, false),
+                    damage_tick: Timer::from_seconds(0.15, true),
                 })
                 .insert(MaximumDistanceFrom {
                     anchor: entity,
@@ -77,7 +77,7 @@ pub fn asteroid_damage(
                         scale: Vec3::splat(0.3),
                         rotation,
                     },
-                    ..Default::default()
+                    ..default()
                 })
                 .insert(CleanupAfterGame)
                 .insert(Shard)

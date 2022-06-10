@@ -1,5 +1,5 @@
 use super::*;
-use bevy::{ecs::component::Component, prelude::*, utils::HashSet};
+use bevy::{ecs::component::Component, prelude::*, sprite::Anchor, utils::HashSet};
 
 #[derive(Component)]
 pub struct WeaponSystem {
@@ -142,13 +142,13 @@ pub fn ship_cannon(
             cannon.0.reset();
             commands
                 .spawn_bundle(SpriteBundle {
-                texture: materials.bullet.clone().into(),
+                    texture: materials.bullet.clone().into(),
                     transform: Transform {
                         translation: transform.translation,
                         rotation: Quat::from_rotation_z(angle),
-                        ..Default::default()
+                        ..default()
                     },
-                    ..Default::default()
+                    ..default()
                 })
                 .insert(CleanupAfterGame)
                 .insert(Bullet::default())
@@ -188,13 +188,14 @@ pub fn laser_beam_init(
                 texture: sprites.laser.clone().into(),
                 sprite: Sprite {
                     custom_size: Some(Vec2::new(2., 1.)),
-                    ..Default::default()
+                    anchor: Anchor::BottomCenter,
+                    ..default()
                 },
                 visibility: Visibility {
                     is_visible: false,
-                    ..Default::default()
+                    ..default()
                 },
-                ..Default::default()
+                ..default()
             })
             .insert(LaserBeam {
                 origin: entity,
@@ -204,8 +205,9 @@ pub fn laser_beam_init(
             .with_children(|parent| {
                 parent
                     .spawn_bundle(SpriteSheetBundle {
+                        transform: Transform::from_scale(Vec2::splat(2.).extend(1.)),
                         texture_atlas: sprites.laser_impact.clone(),
-                        ..Default::default()
+                        ..default()
                     })
                     .insert(LaserImpact)
                     .insert(SpriteAnimation::new(150, 4))
@@ -268,11 +270,16 @@ pub fn laser_beam(
 
             visible.is_visible = true;
             laser_beam.impacted = closest_hit.is_some();
-            sprite.custom_size.unwrap().y = beam_origin.distance(beam_end);
-            transform.translation = ((beam_origin + beam_end) * 0.5).extend(1.);
-            transform.rotation = Quat::from_rotation_z(
-                beam_dir.angle_between(Vec3::Y) * -beam_dir.x.signum(),
-            );
+
+            let mut sprite: Mut<Sprite> = sprite;
+
+            for s in sprite.custom_size.iter_mut() {
+                s.y = beam_origin.distance(beam_end);
+            }
+
+            transform.translation = beam_origin.extend(1.);
+            transform.rotation =
+                Quat::from_rotation_z(beam_dir.angle_between(Vec3::Y) * -beam_dir.x.signum());
 
             if let Some((_, entity, mut hitable)) = closest_hit {
                 hitable.damage_tick.tick(time.delta());
@@ -298,7 +305,7 @@ pub fn laser_impact(
     for (mut transform, mut visible, parent) in impacts.iter_mut() {
         if let Ok((beam, beam_sprite)) = beams.get(parent.0) {
             visible.is_visible = beam.impacted;
-            transform.translation.y = beam_sprite.custom_size.unwrap().y * 0.5;
+            transform.translation.y = beam_sprite.custom_size.unwrap().y;
         } else {
             bevy::log::warn!("LaserImapct doesn't have Parent");
         }
